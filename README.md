@@ -26,7 +26,7 @@ index.html       — markup, no inline scripts or styles
 app.css          — all styles
 app.js           — all application logic
 embed-fonts.py   — optional: embeds fonts as base64 for fully offline use
-LICENSE          — MIT
+LICENSE          — GNU AGPLv3
 ```
 
 ---
@@ -115,6 +115,6 @@ Tor Browser's `about:config` security level must be set to **Standard** or **Saf
 
 ## License
 
-GNU Affero General Public License v3.0 — see [LICENSE](LICENSE).
+MIT License — see [LICENSE](LICENSE).
 
-The AGPL requires that anyone who modifies this software and runs it as a network service must publish their modified source code. This is intentional: for a privacy and security tool, auditability matters.
+Free to use, modify, and distribute for any purpose. Attribution appreciated but not required beyond keeping the copyright notice.
