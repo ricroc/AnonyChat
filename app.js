@@ -1,14 +1,5 @@
 'use strict';
 
-// Use a getter so _subtle is always the live crypto.subtle reference
-// regardless of when extensions modify the environment.
-// Falls back through multiple access paths for cross-browser safety.
-function getSubtle() {
-  return (typeof globalThis !== 'undefined' && globalThis.crypto && globalThis.crypto.subtle)
-    || (typeof window !== 'undefined' && window.crypto && window.crypto.subtle)
-    || crypto.subtle;
-}
-
 // ═══════════════════════════════════════════════════════
 // CRYPTO CONSTANTS — strongest settings throughout
 //   Signing:   ECDSA P-384 + SHA-384
@@ -71,18 +62,23 @@ function fromPem(pem) {
   return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
 }
 
-async function exportPrivPem(key) { return toPem(await getSubtle().exportKey('pkcs8', key), 'PRIVATE KEY'); }
-async function exportPubPem(key)  { return toPem(await getSubtle().exportKey('spki',  key), 'PUBLIC KEY'); }
+async function exportPrivPem(key) { return toPem(await crypto.subtle.exportKey('pkcs8', key), 'PRIVATE KEY'); }
+async function exportPubPem(key)  { return toPem(await crypto.subtle.exportKey('spki',  key), 'PUBLIC KEY'); }
 
 // ═══════════════════════════════════════════════════════
 // SIGNING — ECDSA P-384 / SHA-384
 // ═══════════════════════════════════════════════════════
 
 async function generateSigningKeypair() {
-  return getSubtle().generateKey({ ...SIGN_ALG }, true, ['sign', 'verify']);
+  return crypto.subtle.generateKey({ ...SIGN_ALG }, true, ['sign', 'verify']);
 }
 
 async function importSigningPrivKey(pem) {
+  // Hard check — if crypto.subtle is unavailable the real error is the environment
+  if (typeof crypto === 'undefined' || !crypto.subtle) {
+    throw new Error('crypto.subtle is not available. The page must be served over HTTPS or localhost. (current origin: ' + location.origin + ')');
+  }
+
   pem = pem.trim();
 
   // Detect wrong key type immediately
@@ -115,11 +111,11 @@ async function importSigningPrivKey(pem) {
   const errors = [];
   for (const alg of candidates) {
     try {
-      const key = await getSubtle().importKey('pkcs8', der, alg, true, ['sign']);
+      const key = await crypto.subtle.importKey('pkcs8', der, alg, true, ['sign']);
       const pub = await deriveSigningPub(key, alg);
       return { privateKey: key, publicKey: pub, algorithm: alg };
     } catch (e) {
-      errors.push((alg.namedCurve || alg.name) + ': ' + (e.message || String(e)));
+      errors.push((alg.namedCurve || alg.name) + ': [' + (e.constructor && e.constructor.name || 'Error') + '] ' + (e.message || String(e)));
     }
   }
   // All algorithms failed — the most common cause is pasting the wrong key.
@@ -134,17 +130,17 @@ async function importSigningPrivKey(pem) {
 
 async function deriveSigningPub(privateKey, alg) {
   alg = alg || SIGN_ALG;
-  const jwk = await getSubtle().exportKey('jwk', privateKey);
+  const jwk = await crypto.subtle.exportKey('jwk', privateKey);
   // Strip all private key fields (handles both ECDSA and RSA-PSS)
   ['d','p','q','dp','dq','qi'].forEach(k => delete jwk[k]);
   const pubAlg = alg.name === 'ECDSA'
     ? { name: 'ECDSA', namedCurve: alg.namedCurve }
     : { name: 'RSA-PSS', hash: 'SHA-256' };
-  return getSubtle().importKey('jwk', jwk, pubAlg, true, ['verify']);
+  return crypto.subtle.importKey('jwk', jwk, pubAlg, true, ['verify']);
 }
 
 async function fingerprint(pubKeyPem) {
-  const hash = await getSubtle().digest('SHA-384', new TextEncoder().encode(pubKeyPem));
+  const hash = await crypto.subtle.digest('SHA-384', new TextEncoder().encode(pubKeyPem));
   return Array.from(new Uint8Array(hash)).slice(0, 10).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
@@ -153,7 +149,7 @@ async function signData(text, signingKey, alg) {
   const sigAlg = alg.name === 'ECDSA'
     ? { name: 'ECDSA', hash: alg.namedCurve === 'P-384' ? 'SHA-384' : 'SHA-256' }
     : { name: 'RSA-PSS', saltLength: 32 };
-  const sig = await getSubtle().sign(sigAlg, signingKey, new TextEncoder().encode(text));
+  const sig = await crypto.subtle.sign(sigAlg, signingKey, new TextEncoder().encode(text));
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
@@ -167,8 +163,8 @@ async function verifyData(text, sigB64, pubKeyPem, alg) {
     const verAlg = alg.name === 'ECDSA'
       ? { name: 'ECDSA', hash: alg.namedCurve === 'P-384' ? 'SHA-384' : 'SHA-256' }
       : { name: 'RSA-PSS', saltLength: 32 };
-    const key = await getSubtle().importKey('spki', fromPem(pubKeyPem), importAlg, false, ['verify']);
-    return getSubtle().verify(verAlg, key,
+    const key = await crypto.subtle.importKey('spki', fromPem(pubKeyPem), importAlg, false, ['verify']);
+    return crypto.subtle.verify(verAlg, key,
       Uint8Array.from(atob(sigB64), c => c.charCodeAt(0)),
       new TextEncoder().encode(text));
   } catch { return false; }
@@ -179,13 +175,13 @@ async function verifyData(text, sigB64, pubKeyPem, alg) {
 // ═══════════════════════════════════════════════════════
 
 async function generateDHKeypair() {
-  return getSubtle().generateKey({ ...DH_ALG }, true, ['deriveKey']);
+  return crypto.subtle.generateKey({ ...DH_ALG }, true, ['deriveKey']);
 }
 
 // Both parties independently derive the same AES-256-GCM key.
 async function deriveSharedDMKey(myDhPrivKey, theirDhPubKeyPem) {
-  const theirPub = await getSubtle().importKey('spki', fromPem(theirDhPubKeyPem), DH_ALG, false, []);
-  return getSubtle().deriveKey(
+  const theirPub = await crypto.subtle.importKey('spki', fromPem(theirDhPubKeyPem), DH_ALG, false, []);
+  return crypto.subtle.deriveKey(
     { name: 'ECDH', public: theirPub },
     myDhPrivKey,
     AES_ALG, false, ['encrypt', 'decrypt']
@@ -199,8 +195,8 @@ async function deriveSharedDMKey(myDhPrivKey, theirDhPubKeyPem) {
 async function persistDHPrivKey(dhPrivKey, fp) {
   const wrapKey  = await derivePersistKey(fp);
   const iv       = crypto.getRandomValues(new Uint8Array(12));
-  const raw      = await getSubtle().exportKey('pkcs8', dhPrivKey);
-  const wrapped  = await getSubtle().encrypt({ name: 'AES-GCM', iv }, wrapKey, raw);
+  const raw      = await crypto.subtle.exportKey('pkcs8', dhPrivKey);
+  const wrapped  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, wrapKey, raw);
   const out      = new Uint8Array(12 + wrapped.byteLength);
   out.set(iv, 0); out.set(new Uint8Array(wrapped), 12);
   localStorage.setItem('cipher_dh_' + fp, btoa(String.fromCharCode(...out)));
@@ -212,24 +208,24 @@ async function loadDHPrivKey(fp) {
   const buf     = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
   const wrapKey = await derivePersistKey(fp);
   try {
-    const raw = await getSubtle().decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, wrapKey, buf.slice(12));
-    return getSubtle().importKey('pkcs8', raw, DH_ALG, true, ['deriveKey']);
+    const raw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, wrapKey, buf.slice(12));
+    return crypto.subtle.importKey('pkcs8', raw, DH_ALG, true, ['deriveKey']);
   } catch { return null; }
 }
 
 async function derivePersistKey(fp) {
-  const base = await getSubtle().importKey('raw', new TextEncoder().encode(fp), 'PBKDF2', false, ['deriveKey']);
-  const salt  = await getSubtle().digest('SHA-384', new TextEncoder().encode('cipher-dh-wrap:' + fp));
-  return getSubtle().deriveKey(
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(fp), 'PBKDF2', false, ['deriveKey']);
+  const salt  = await crypto.subtle.digest('SHA-384', new TextEncoder().encode('cipher-dh-wrap:' + fp));
+  return crypto.subtle.deriveKey(
     { ...KDF_WRAP, salt },
     base, AES_ALG, false, ['encrypt', 'decrypt']
   );
 }
 
 async function deriveDHPubFromPriv(dhPrivKey) {
-  const jwk = await getSubtle().exportKey('jwk', dhPrivKey);
+  const jwk = await crypto.subtle.exportKey('jwk', dhPrivKey);
   delete jwk.d;
-  return getSubtle().importKey('jwk', jwk, DH_ALG, true, []);
+  return crypto.subtle.importKey('jwk', jwk, DH_ALG, true, []);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -238,7 +234,7 @@ async function deriveDHPubFromPriv(dhPrivKey) {
 
 async function aesEncrypt(plaintext, key) {
   const iv  = crypto.getRandomValues(new Uint8Array(12));
-  const ct  = await getSubtle().encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext));
+  const ct  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext));
   const out = new Uint8Array(12 + ct.byteLength);
   out.set(iv, 0); out.set(new Uint8Array(ct), 12);
   return btoa(String.fromCharCode(...out));
@@ -246,7 +242,7 @@ async function aesEncrypt(plaintext, key) {
 
 async function aesDecrypt(b64, key) {
   const buf   = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-  const plain = await getSubtle().decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12));
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0, 12) }, key, buf.slice(12));
   return new TextDecoder().decode(plain);
 }
 
@@ -256,9 +252,9 @@ async function aesDecrypt(b64, key) {
 
 async function deriveChannelKey(passphrase, channel) {
   const enc  = new TextEncoder();
-  const base = await getSubtle().importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
-  const salt = await getSubtle().digest('SHA-384', enc.encode('cipher-channel:' + channel));
-  return getSubtle().deriveKey({ ...KDF_CHAN, salt }, base, AES_ALG, false, ['encrypt', 'decrypt']);
+  const base = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  const salt = await crypto.subtle.digest('SHA-384', enc.encode('cipher-channel:' + channel));
+  return crypto.subtle.deriveKey({ ...KDF_CHAN, salt }, base, AES_ALG, false, ['encrypt', 'decrypt']);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -391,6 +387,12 @@ async function importKey() {
 
   const btn = $('btn-import');
   btn.textContent = 'VERIFYING...'; btn.disabled = true;
+
+  // Sanity-check crypto availability before attempting import
+  if (!crypto || !crypto.subtle) {
+    showLoginError('Web Crypto API not available. This page must be served over HTTPS or from localhost.');
+    btn.textContent = 'IMPORT AND ENTER'; btn.disabled = false; return;
+  }
 
   let sigKeys;
   try {
