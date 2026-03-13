@@ -26,7 +26,7 @@ index.html       — markup, no inline scripts or styles
 app.css          — all styles
 app.js           — all application logic
 embed-fonts.py   — optional: embeds fonts as base64 for fully offline use
-LICENSE          — GNU AGPLv3
+LICENSE          — MIT
 ```
 
 ---
