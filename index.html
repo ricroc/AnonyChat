@@ -7,7 +7,87 @@
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<div id="app">
+
+<!-- LOCK SCREEN shown until keypair exists -->
+<div id="lock-screen">
+  <div class="lock-inner">
+    <div class="lock-logo">CIPHER<span>//</span>NET</div>
+    <div class="lock-sub">// End-to-end encrypted · Cryptographic identity required</div>
+
+    <div class="lock-tab-bar">
+      <div class="lock-tab active" id="lock-tab-register" data-tab="register">GENERATE KEYS</div>
+      <div class="lock-tab" id="lock-tab-login" data-tab="login">IMPORT KEY</div>
+    </div>
+
+    <!-- REGISTER PANEL -->
+    <div id="lock-panel-register">
+      <div class="field-group">
+        <label class="field-label" for="reg-username">Handle / Username</label>
+        <input class="field-input" id="reg-username" type="text" placeholder="your_handle" maxlength="32" autocomplete="off" spellcheck="false">
+        <div class="field-hint">Letters, numbers, underscores. 3-32 chars. This is public.</div>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="reg-algo">Key Algorithm</label>
+        <select class="field-input" id="reg-algo">
+          <option value="ECDSA-P256">ECDSA P-256 (recommended, fast)</option>
+          <option value="ECDSA-P384">ECDSA P-384 (stronger)</option>
+          <option value="RSA-PSS">RSA-PSS 2048 (classical)</option>
+        </select>
+        <div class="field-hint">Used to sign and encrypt messages via Web Crypto API.</div>
+      </div>
+      <div id="key-gen-area" class="hidden">
+        <div class="progress-bar"><div class="progress-fill" id="gen-progress"></div></div>
+        <div class="warning-box">
+          <div class="w-title">WARNING: PRIVATE KEY - SHOWN ONCE</div>
+          <p>Save your private key now. It will <strong class="amber">NOT</strong> be stored anywhere. If you lose it, your identity is gone forever.</p>
+        </div>
+        <div class="field-group field-group-rel">
+          <label class="field-label">Your Private Key (PKCS#8 PEM)</label>
+          <div class="key-display" id="priv-key-display">Generating...</div>
+          <button class="copy-btn" id="copy-priv-btn">COPY</button>
+        </div>
+        <div class="field-group field-group-rel">
+          <label class="field-label">Your Public Key (shared with others)</label>
+          <div class="key-display" id="pub-key-display">Generating...</div>
+          <button class="copy-btn" id="copy-pub-btn">COPY</button>
+        </div>
+        <div class="check-row">
+          <input type="checkbox" id="confirm-saved">
+          <label for="confirm-saved">I have saved my private key in a secure location. I understand it cannot be recovered if lost.</label>
+        </div>
+      </div>
+      <div class="lock-btn-row">
+        <button class="btn btn-primary btn-wide" id="btn-gen">GENERATE KEYPAIR</button>
+        <button class="btn btn-primary btn-wide hidden" id="btn-activate" disabled>ENTER CIPHER//NET</button>
+      </div>
+    </div>
+
+    <!-- IMPORT PANEL -->
+    <div id="lock-panel-login" class="hidden">
+      <div class="drop-zone" id="drop-zone">DROP cipher-identity.json HERE or click to browse</div>
+      <input type="file" id="identity-file-input" accept=".json,application/json" class="hidden">
+      <div class="identity-preview hidden" id="identity-preview"></div>
+      <div class="field-group">
+        <label class="field-label" for="login-privkey">Your Private Key (PKCS#8 PEM)</label>
+        <textarea class="field-input mono-sm" id="login-privkey" rows="5" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" spellcheck="false"></textarea>
+        <div class="field-hint">Paste your private key. Your identity is re-derived from it.</div>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="login-username">Handle (optional override)</label>
+        <input class="field-input" id="login-username" type="text" placeholder="leave blank to use stored handle" maxlength="32" autocomplete="off">
+      </div>
+      <div id="login-error" class="login-error hidden"></div>
+      <div class="lock-btn-row">
+        <button class="btn btn-primary btn-wide" id="btn-import">IMPORT AND ENTER</button>
+      </div>
+    </div>
+
+    <div class="lock-footer">Web Crypto API · AES-GCM encryption · ECDSA signatures · No external requests</div>
+  </div>
+</div>
+
+<!-- MAIN APP hidden until authenticated -->
+<div id="app" class="hidden">
   <header>
     <div class="logo">CIPHER<span>//</span>NET</div>
     <div class="status-bar">
@@ -17,10 +97,10 @@
   </header>
 
   <div id="storage-warning" class="hidden">
-    <span class="warn-icon">⚠</span>
-    <span>Your identity lives in <strong>browser localStorage</strong>. Clearing site data will erase it permanently.
+    <span class="warn-icon">!</span>
+    <span>Your identity lives in browser localStorage. Clearing site data will erase it.
     <button id="warn-export-btn" class="warn-link">Export a backup</button> to recover on another device.</span>
-    <button class="dismiss-warn" id="dismiss-warn-btn" title="Dismiss">×</button>
+    <button class="dismiss-warn" id="dismiss-warn-btn" title="Dismiss">x</button>
   </div>
 
   <div class="main">
@@ -40,140 +120,45 @@
         </div>
       </div>
       <div class="sidebar-section">
-        <button class="btn btn-ghost btn-full" id="auth-btn">[ SIGN IN / REGISTER ]</button>
+        <button class="btn btn-ghost btn-full" id="auth-btn">[ SIGN OUT ]</button>
       </div>
       <div class="sidebar-actions hidden" id="identity-actions">
         <div class="storage-health">
           <span class="sh-dot"></span>
           <span>IDENTITY STORED LOCALLY</span>
         </div>
-        <button class="btn-tiny highlight" id="btn-export-identity">↓ EXPORT PUBLIC IDENTITY</button>
-        <button class="btn-tiny" id="btn-export-backup">↓ EXPORT FULL BACKUP (JSON)</button>
+        <button class="btn-tiny highlight" id="btn-export-identity">EXPORT PUBLIC IDENTITY</button>
+        <button class="btn-tiny" id="btn-export-backup">EXPORT FULL BACKUP (JSON)</button>
       </div>
     </div>
 
     <div class="chat-area">
       <div class="chat-header">
         <strong id="channel-title"># general</strong>
-        <span>·</span>
-        <span id="channel-desc">Public broadcast channel — messages signed with your key</span>
-      </div>
-
-      <div class="messages" id="messages">
-        <div class="no-login-hint" id="no-login-hint">
-          <p>&gt; CIPHER//NET requires a keypair to participate</p>
-          <p>&gt; Generate keys or import existing keys to continue</p>
-          <p>&gt; Your private key never leaves this device</p>
-          <button class="btn btn-primary btn-hint-auth" id="hint-auth-btn">GENERATE KEYS</button>
+        <span class="header-sep">·</span>
+        <span id="channel-desc">Encrypted channel</span>
+        <div class="passphrase-wrap" id="passphrase-wrap">
+          <input id="channel-passphrase" type="password" placeholder="channel passphrase..." autocomplete="new-password" spellcheck="false">
+          <button class="btn-passphrase" id="btn-set-passphrase">SET KEY</button>
+          <span class="enc-status" id="enc-status">NO KEY SET</span>
         </div>
       </div>
+
+      <div class="messages" id="messages"></div>
 
       <div class="input-area">
         <div class="input-wrap">
           <span class="input-prefix">&gt;</span>
-          <input id="msg-input" type="text" placeholder="You must be authenticated to send messages..." disabled maxlength="2000" autocomplete="off" spellcheck="false">
+          <input id="msg-input" type="text" placeholder="Set a channel passphrase to send messages..." disabled maxlength="2000" autocomplete="off" spellcheck="false">
           <button class="btn-send" id="btn-send" disabled>SEND</button>
         </div>
-        <div class="input-hint" id="input-hint">&gt; NOT AUTHENTICATED — MESSAGES ARE READ-ONLY</div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Auth Modal -->
-<div class="modal-overlay hidden" id="auth-modal">
-  <div class="modal">
-    <div class="modal-title">KEY VAULT</div>
-    <div class="modal-sub">// Cryptographic identity management</div>
-
-    <div class="tab-bar">
-      <div class="tab active" id="tab-register" data-tab="register">REGISTER</div>
-      <div class="tab" id="tab-login" data-tab="login">IMPORT KEY</div>
-    </div>
-
-    <!-- REGISTER TAB -->
-    <div id="panel-register">
-      <div class="field-group">
-        <label class="field-label" for="reg-username">Handle / Username</label>
-        <input class="field-input" id="reg-username" type="text" placeholder="your_handle" maxlength="32" autocomplete="off" spellcheck="false">
-        <div class="field-hint">Letters, numbers, underscores. 3–32 chars. This is public.</div>
-      </div>
-
-      <div class="field-group">
-        <label class="field-label" for="reg-algo">Key Algorithm</label>
-        <select class="field-input" id="reg-algo">
-          <option value="ECDSA-P256">ECDSA P-256 (recommended, fast)</option>
-          <option value="ECDSA-P384">ECDSA P-384 (stronger)</option>
-          <option value="RSA-PSS">RSA-PSS 2048 (classical)</option>
-        </select>
-        <div class="field-hint">Used to sign messages. Verifiable by anyone with your public key.</div>
-      </div>
-
-      <div id="key-gen-area" class="hidden">
-        <div class="progress-bar"><div class="progress-fill" id="gen-progress"></div></div>
-
-        <div class="warning-box">
-          <div class="w-title">⚠ PRIVATE KEY — SHOWN ONCE</div>
-          <p>Save your private key now. It will <strong class="amber">NOT</strong> be stored anywhere. If you lose it, your identity is gone forever.</p>
-        </div>
-
-        <div class="field-group field-group-rel">
-          <label class="field-label">Your Private Key (PKCS#8 PEM)</label>
-          <div class="key-display" id="priv-key-display">Generating...</div>
-          <button class="copy-btn" id="copy-priv-btn">COPY</button>
-        </div>
-
-        <div class="field-group field-group-rel">
-          <label class="field-label">Your Public Key (shared with others)</label>
-          <div class="key-display" id="pub-key-display">Generating...</div>
-          <button class="copy-btn" id="copy-pub-btn">COPY</button>
-        </div>
-
-        <div class="check-row">
-          <input type="checkbox" id="confirm-saved">
-          <label for="confirm-saved">I have saved my private key in a secure location. I understand it cannot be recovered if lost.</label>
-        </div>
-      </div>
-
-      <div class="btn-row">
-        <button class="btn btn-ghost" id="cancel-register-btn">CANCEL</button>
-        <button class="btn btn-primary" id="btn-gen">GENERATE KEYPAIR</button>
-        <button class="btn btn-primary hidden" id="btn-activate" disabled>ACTIVATE →</button>
-      </div>
-    </div>
-
-    <!-- LOGIN TAB -->
-    <div id="panel-login" class="hidden">
-      <div class="drop-zone" id="drop-zone">
-        ↓ DROP cipher-identity.json HERE — or click to browse
-      </div>
-      <input type="file" id="identity-file-input" accept=".json,application/json" class="hidden">
-
-      <div class="identity-preview hidden" id="identity-preview"></div>
-
-      <div class="field-group">
-        <label class="field-label" for="login-privkey">Your Private Key (PKCS#8 PEM)</label>
-        <textarea class="field-input mono-sm" id="login-privkey" rows="6" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----" spellcheck="false"></textarea>
-        <div class="field-hint">Paste your private key, or drop a backup file above to pre-fill.</div>
-      </div>
-
-      <div class="field-group">
-        <label class="field-label" for="login-username">Handle (optional override)</label>
-        <input class="field-input" id="login-username" type="text" placeholder="leave blank to use stored handle" maxlength="32" autocomplete="off">
-      </div>
-
-      <div id="login-error" class="login-error hidden"></div>
-
-      <div class="btn-row">
-        <button class="btn btn-ghost" id="cancel-login-btn">CANCEL</button>
-        <button class="btn btn-primary" id="btn-import">IMPORT & SIGN IN</button>
+        <div class="input-hint" id="input-hint">&gt; SET A CHANNEL PASSPHRASE TO ENCRYPT AND SEND MESSAGES</div>
       </div>
     </div>
   </div>
 </div>
 
 <div id="toast"></div>
-
 <script src="app.js"></script>
 </body>
 </html>

@@ -728,3 +728,167 @@ header {
 }
 
 #toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ─── LOCK SCREEN ─────────────────────────────────── */
+#lock-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5000;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+#lock-screen.hidden { display: none !important; }
+
+.lock-inner {
+  width: 520px;
+  max-width: 100%;
+  padding: 40px 48px;
+  border: 1px solid var(--green3);
+  background: var(--bg2);
+  box-shadow: 0 0 60px rgba(0,229,0,0.1), inset 0 0 80px rgba(0,40,0,0.4);
+}
+
+.lock-logo {
+  font-family: var(--display);
+  font-size: 48px;
+  color: var(--green);
+  text-shadow: var(--glow-strong);
+  letter-spacing: 6px;
+  text-align: center;
+  margin-bottom: 6px;
+}
+
+.lock-logo span { color: var(--text-dim); }
+
+.lock-sub {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-faint);
+  letter-spacing: 2px;
+  margin-bottom: 32px;
+}
+
+.lock-tab-bar {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+}
+
+.lock-tab {
+  flex: 1;
+  text-align: center;
+  padding: 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 2px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: all 0.15s;
+}
+
+.lock-tab:hover  { color: var(--green); }
+.lock-tab.active { color: var(--green); border-bottom-color: var(--green); }
+
+.lock-btn-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.btn-wide { width: 100%; text-align: center; }
+
+.lock-footer {
+  margin-top: 32px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+
+/* ─── CHANNEL PASSPHRASE ──────────────────────────── */
+.chat-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.header-sep { color: var(--text-faint); }
+
+.passphrase-wrap {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 3px 8px;
+}
+
+#channel-passphrase {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  width: 180px;
+  caret-color: var(--green);
+}
+
+#channel-passphrase::placeholder { color: var(--text-faint); }
+
+.btn-passphrase {
+  background: transparent;
+  border: 1px solid var(--green-dim);
+  color: var(--green3);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 2px 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-passphrase:hover { border-color: var(--green); color: var(--green); }
+
+.enc-status {
+  font-size: 10px;
+  letter-spacing: 1px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.enc-status.active {
+  color: var(--green);
+  border-color: var(--green3);
+  background: var(--green-dim);
+  box-shadow: var(--glow);
+}
+
+/* encrypted badge on messages */
+.msg-enc {
+  font-size: 10px;
+  color: var(--green3);
+  margin-top: 2px;
+  letter-spacing: 1px;
+}
+
+.msg-enc.failed { color: var(--red); }
+
+.no-crypto {
+  color: var(--red);
+  padding: 40px;
+  font-family: var(--mono);
+  font-size: 14px;
+  text-align: center;
+}
