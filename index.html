@@ -27,9 +27,13 @@
         <div class="field-hint">Letters, numbers, underscores. 3-32 chars. Public.</div>
       </div>
       <div class="field-group">
-        <div class="field-label">Key Algorithms</div>
-        <div class="algo-badge">ECDSA P-256 / SHA-256 &nbsp;·&nbsp; ECDH P-256 &nbsp;·&nbsp; AES-256-GCM &nbsp;·&nbsp; PBKDF2-SHA-256</div>
-        <div class="field-hint">Signing key + dedicated DM key generated simultaneously. Strongest available in Web Crypto API.</div>
+        <label class="field-label" for="reg-algo">Signing Algorithm</label>
+        <select class="field-input" id="reg-algo">
+          <option value="ECDSA-P256">ECDSA P-256 (recommended)</option>
+          <option value="ECDSA-P384">ECDSA P-384 (stronger)</option>
+          <option value="RSA-PSS">RSA-PSS 2048 (classical)</option>
+        </select>
+        <div class="field-hint">Signs messages. A separate ECDH P-256 keypair is auto-generated for encrypted DMs.</div>
       </div>
       <div id="key-gen-area" class="hidden">
         <div class="progress-bar"><div class="progress-fill" id="gen-progress"></div></div>
@@ -78,7 +82,7 @@
       </div>
     </div>
 
-    <div class="lock-footer">ECDSA P-256/SHA-256 · ECDH P-256 · AES-256-GCM · PBKDF2-SHA-256 · 600k iter · Web Crypto API</div>
+    <div class="lock-footer">AES-256-GCM · ECDSA P-256/P-384/RSA-PSS · ECDH P-256 · PBKDF2 · Web Crypto API · No external requests</div>
   </div>
 </div>
 
@@ -187,6 +191,6 @@
 </div>
 
 <div id="toast"></div>
-<script src="app.js"></script>
+<script src="app.v2.js"></script>
 </body>
 </html>
