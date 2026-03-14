@@ -1,5 +1,36 @@
 'use strict';
 
+// Pure-JS base64 encode/decode — avoids atob/btoa which SES lockdown
+// (MetaMask and similar extensions) may freeze or alter.
+const B64CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function b64Encode(bytes) {
+  let out = '', i = 0;
+  while (i < bytes.length) {
+    const a = bytes[i++], b = bytes[i++], c = bytes[i++];
+    out += B64CHARS[a >> 2]
+        +  B64CHARS[((a & 3) << 4) | (b >> 4)]
+        +  (b !== undefined ? B64CHARS[((b & 15) << 2) | (c >> 6)] : '=')
+        +  (c !== undefined ? B64CHARS[c & 63] : '=');
+  }
+  return out;
+}
+function b64Decode(s) {
+  s = s.replace(/[^A-Za-z0-9+/]/g, '');
+  const lookup = new Uint8Array(256);
+  for (let i = 0; i < B64CHARS.length; i++) lookup[B64CHARS.charCodeAt(i)] = i;
+  const bytes = new Uint8Array(Math.floor(s.length * 3 / 4));
+  let j = 0;
+  for (let i = 0; i < s.length; i += 4) {
+    const a = lookup[s.charCodeAt(i)], b = lookup[s.charCodeAt(i+1)],
+          c = lookup[s.charCodeAt(i+2)], d = lookup[s.charCodeAt(i+3)];
+    bytes[j++] = (a << 2) | (b >> 4);
+    if (s[i+2] !== '=') bytes[j++] = ((b & 15) << 4) | (c >> 2);
+    if (s[i+3] !== '=') bytes[j++] = ((c & 3)  << 6) | d;
+  }
+  return bytes.slice(0, j);
+}
+
+
 // ═══════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════
@@ -29,13 +60,13 @@ const CHANNEL_DESCS = {
 // ═══════════════════════════════════════════════════════
 
 function toPem(buffer, label) {
-  const b64 = btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  const b64 = b64Encode(new Uint8Array(buffer));
   return `-----BEGIN ${label}-----\n${b64.match(/.{1,64}/g).join('\n')}\n-----END ${label}-----`;
 }
 
 function fromPem(pem) {
   const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
-  return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer;
+  return b64Decode(b64).buffer;
 }
 
 async function exportPrivPem(key) { return toPem(await crypto.subtle.exportKey('pkcs8', key), 'PRIVATE KEY'); }
@@ -69,17 +100,41 @@ async function importPrivateKey(pem) {
   const der = fromPem(pem);
   const errors = [];
 
-  // Direct ECDSA imports
+  // For each EC curve, try both PKCS#8-direct and PKCS#8→JWK→re-import paths.
+  // The JWK path is needed when the key was generated with ECDH usage (deriveKey)
+  // instead of ECDSA usage (sign) — both produce identical PKCS#8 bytes but
+  // browsers enforce the original key_ops on re-import via pkcs8.
+  // Going via JWK and deleting key_ops bypasses this restriction on all browsers.
   for (const curve of ['P-256', 'P-384']) {
-    const alg = { name: 'ECDSA', namedCurve: curve };
+    const sigAlg = { name: 'ECDSA', namedCurve: curve };
+
+    // Path A: direct pkcs8 → ECDSA (works when key was generated as ECDSA)
     try {
-      const key = await crypto.subtle.importKey('pkcs8', der, alg, true, ['sign']);
-      const pub = await derivePublicFromPrivate(key, alg);
-      return { privateKey: key, publicKey: pub, algorithm: alg };
-    } catch (e) { errors.push('ECDSA-' + curve + ': ' + (e.message || e)); }
+      const key = await crypto.subtle.importKey('pkcs8', der, sigAlg, true, ['sign']);
+      const pub = await derivePublicFromPrivate(key, sigAlg);
+      return { privateKey: key, publicKey: pub, algorithm: sigAlg };
+    } catch (e) { errors.push('ECDSA-' + curve + '-direct: ' + (e.message || e)); }
+
+    // Path B: pkcs8 → ECDH → export JWK (drop key_ops) → re-import as ECDSA
+    // Works when key was generated as ECDH (e.g. old buggy build showed DM key)
+    for (const importAs of ['ECDH', 'ECDSA']) {
+      const importAlg = importAs === 'ECDH'
+        ? { name: 'ECDH',  namedCurve: curve }
+        : { name: 'ECDSA', namedCurve: curve };
+      const importUsage = importAs === 'ECDH' ? ['deriveKey'] : ['sign', 'verify'];
+      try {
+        const tmp = await crypto.subtle.importKey('pkcs8', der, importAlg, true, importUsage);
+        const jwk = await crypto.subtle.exportKey('jwk', tmp);
+        delete jwk.key_ops;   // drop usage restriction — let algorithm govern
+        delete jwk.ext;
+        const key = await crypto.subtle.importKey('jwk', jwk, sigAlg, true, ['sign']);
+        const pub = await derivePublicFromPrivate(key, sigAlg);
+        return { privateKey: key, publicKey: pub, algorithm: sigAlg };
+      } catch (e) { errors.push('ECDSA-' + curve + '-via-' + importAs + '-JWK: ' + (e.message || e)); }
+    }
   }
 
-  // RSA-PSS
+  // RSA-PSS (pkcs8 only — no JWK fallback needed, RSA doesn't have the curve mismatch problem)
   try {
     const alg = { name: 'RSA-PSS', hash: 'SHA-256' };
     const key = await crypto.subtle.importKey('pkcs8', der, alg, true, ['sign']);
@@ -87,26 +142,12 @@ async function importPrivateKey(pem) {
     return { privateKey: key, publicKey: pub, algorithm: alg };
   } catch (e) { errors.push('RSA-PSS: ' + (e.message || e)); }
 
-  // ECDH→ECDSA re-import via JWK (Firefox sometimes needs this path)
-  for (const curve of ['P-256', 'P-384']) {
-    const dhAlg  = { name: 'ECDH', namedCurve: curve };
-    const sigAlg = { name: 'ECDSA', namedCurve: curve };
-    try {
-      const dhKey  = await crypto.subtle.importKey('pkcs8', der, dhAlg, true, ['deriveKey']);
-      const jwk    = await crypto.subtle.exportKey('jwk', dhKey);
-      jwk.key_ops  = ['sign'];
-      const key    = await crypto.subtle.importKey('jwk', jwk, sigAlg, true, ['sign']);
-      const pub    = await derivePublicFromPrivate(key, sigAlg);
-      return { privateKey: key, publicKey: pub, algorithm: sigAlg };
-    } catch (e) { errors.push('ECDH-' + curve + '→ECDSA: ' + (e.message || e)); }
-  }
-
   throw new Error('Could not import key. All attempts failed:\n' + errors.join('\n'));
 }
 
 async function derivePublicFromPrivate(privateKey, alg) {
   const jwk = await crypto.subtle.exportKey('jwk', privateKey);
-  ['d','p','q','dp','dq','qi'].forEach(k => delete jwk[k]);
+  ['d','p','q','dp','dq','qi','key_ops'].forEach(k => delete jwk[k]);
   const pubAlg = alg.name === 'ECDSA'
     ? { name: 'ECDSA', namedCurve: alg.namedCurve }
     : { name: 'RSA-PSS', hash: 'SHA-256' };
@@ -128,7 +169,7 @@ function getSignAlg(algo) {
 
 async function signData(text, privateKey, algo) {
   const sig = await crypto.subtle.sign(getSignAlg(algo), privateKey, new TextEncoder().encode(text));
-  return btoa(String.fromCharCode(...new Uint8Array(sig)));
+  return b64Encode(new Uint8Array(sig));
 }
 
 async function verifyData(text, sigB64, pubKeyPem, algo) {
@@ -139,7 +180,7 @@ async function verifyData(text, sigB64, pubKeyPem, algo) {
       : { name: 'RSA-PSS', hash: 'SHA-256' };
     const key = await crypto.subtle.importKey('spki', fromPem(pubKeyPem), importAlg, false, ['verify']);
     return crypto.subtle.verify(getSignAlg(algo), key,
-      Uint8Array.from(atob(sigB64), c => c.charCodeAt(0)),
+      b64Decode(sigB64),
       new TextEncoder().encode(text));
   } catch { return false; }
 }
@@ -170,13 +211,13 @@ async function persistDHPrivKey(dhPrivKey, fp) {
   const wrapped = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, wrapKey, raw);
   const out     = new Uint8Array(12 + wrapped.byteLength);
   out.set(iv, 0); out.set(new Uint8Array(wrapped), 12);
-  localStorage.setItem('cipher_dh_' + fp, btoa(String.fromCharCode(...out)));
+  localStorage.setItem('cipher_dh_' + fp, b64Encode(out));
 }
 
 async function loadDHPrivKey(fp) {
   const stored = localStorage.getItem('cipher_dh_' + fp);
   if (!stored) return null;
-  const buf     = Uint8Array.from(atob(stored), c => c.charCodeAt(0));
+  const buf     = b64Decode(stored);
   const wrapKey = await derivePersistKey(fp);
   try {
     const raw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0,12) }, wrapKey, buf.slice(12));
@@ -208,11 +249,11 @@ async function aesEncrypt(plaintext, key) {
   const ct  = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(plaintext));
   const out = new Uint8Array(12 + ct.byteLength);
   out.set(iv, 0); out.set(new Uint8Array(ct), 12);
-  return btoa(String.fromCharCode(...out));
+  return b64Encode(out);
 }
 
 async function aesDecrypt(b64, key) {
-  const buf   = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const buf   = b64Decode(b64);
   const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0,12) }, key, buf.slice(12));
   return new TextDecoder().decode(plain);
 }
