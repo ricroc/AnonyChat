@@ -1,48 +1,32 @@
 # CIPHER//NET
 
-A self-hosted, single-page encrypted chat application. No accounts, no servers, no tracking — just cryptographic keypairs, signed messages, and end-to-end encryption.
+A self-hosted, single-page encrypted chat application. No accounts, no servers, no tracking — just cryptographic keypairs and signed messages.
 
-Built to run on [OnionShare](https://onionshare.org/), but works on any static web host over HTTPS.
+Built to run on [OnionShare](https://onionshare.org/), but works on any static web host.
 
 ---
 
 ## Features
 
-### Identity & Authentication
-- **Keypair identity** — your account is a public/private keypair generated entirely in your browser. No passwords, no email, no server.
-- **Private key shown once** — your signing private key is displayed at registration and immediately discarded from memory. It is never stored anywhere.
-- **Lock screen gate** — the chat UI is completely hidden until you authenticate with a keypair. Nothing is accessible without a valid key.
-- **Returning user detection** — if a fingerprint is found in localStorage, the import tab opens automatically with your handle pre-filled.
-
-### Encryption
-- **Channel encryption** — all channel messages are encrypted with AES-256-GCM. A shared passphrase is required to read or send in a channel. The key is derived via PBKDF2 (200,000 iterations, SHA-256) with a deterministic per-channel salt.
-- **Direct message encryption** — DMs use ECDH P-256 key exchange. Both parties independently derive the same AES-256-GCM shared key from each other's public DH key — no key is ever transmitted.
-- **Message signing** — every message is signed with your ECDSA or RSA-PSS private key and verified on receipt. Each message displays a ✓ SIGNED or ✗ INVALID badge.
-- **Messages locked without key** — history without the channel passphrase shows `[encrypted — key required to read]`. Wrong passphrase shows `[decryption failed]`.
-
-### Privacy Deterrents
-- **No text selection** — chat content cannot be selected or copied via keyboard.
-- **Right-click blocked** — context menu is suppressed on the entire page.
-- **Screen blanking** — the entire screen goes black when the window loses focus or is hidden (alt-tab, switching apps). Returns immediately on refocus.
-- **PrintScreen warning** — pressing Print Screen or Snapshot triggers a `// SCREENSHOT DETECTED` warning overlay. Note: OS-level screenshots cannot be blocked by a browser — this is a deterrent, not a guarantee.
-- **Keyboard shortcuts suppressed** — Ctrl+S, Ctrl+U, Ctrl+P, and F12 are blocked.
-
-### Identity Management
-- **Export public identity** — share your handle, public signing key, and ECDH DM public key as a JSON file. Safe to distribute.
-- **Export full backup** — exports all encrypted message history, public keys, and DM threads as JSON. Private key is never included.
-- **Import / restore** — drag and drop a backup or identity file on the import tab, then paste your private key. Works across devices.
-- **ECDH DM key persistence** — your DM keypair is stored encrypted in localStorage (PBKDF2-wrapped AES-GCM) and automatically restored on import.
+- **Keypair identity** — accounts are a public/private key pair generated in your browser. No passwords, no email.
+- **Cryptographically signed messages** — every message is signed with your private key and verified against your public key. Tampering is detectable.
+- **Private key shown once** — your private key is displayed at registration and immediately discarded. It is never stored anywhere.
+- **No server required** — runs entirely as static files. Message history and public keys are stored in browser `localStorage`.
+- **Tor / OnionShare compatible** — no external requests, no CDN dependencies, no inline scripts. Fully compliant with OnionShare's strict Content Security Policy.
+- **Identity export/import** — export your public identity or a full backup as JSON. Drag and drop to restore on another device.
+- **Multiple channels** — `#general`, `#random`, `#tech`.
+- **Offline-capable fonts** — ships with system font fallbacks. Run `embed-fonts.py` once to bake real fonts in as base64 for a consistent look everywhere.
 
 ---
 
 ## Files
 
 ```
-index.html       — markup only, no inline scripts or styles
+index.html       — markup, no inline scripts or styles
 app.css          — all styles
-app.js           — all application logic and crypto
-embed-fonts.py   — optional: bakes fonts as base64 for fully offline use
-README.md        — this file
+app.js           — all application logic
+embed-fonts.py   — optional: embeds fonts as base64 for fully offline use
+LICENSE          — GNU AGPLv3
 ```
 
 ---
@@ -50,12 +34,12 @@ README.md        — this file
 ## Hosting on OnionShare
 
 1. Open OnionShare → **Publish website**
-2. Add `index.html`, `app.css`, and `app.js`
+2. Add all four files (`index.html`, `app.css`, `app.js`, and optionally `embed-fonts.py` can be left out)
 3. Start — share the `.onion` address
 
-No Python, no Node, no configuration. The app makes zero external requests and is fully compliant with OnionShare's strict Content Security Policy (`default-src 'self'`).
+That's it. No Python, no Node, no configuration.
 
-> **Note:** Use **Publish website** mode, not "Serve files" — the latter serves a directory listing rather than loading `index.html` as the app entry point.
+> **Note:** OnionShare's "Serve files" mode will not work — it serves files with a directory listing rather than as a website. Use **Publish website** mode.
 
 ---
 
@@ -63,106 +47,69 @@ No Python, no Node, no configuration. The app makes zero external requests and i
 
 Any static file server works: GitHub Pages, Nginx, Caddy, Apache, `python3 -m http.server`.
 
-> **Web Crypto API requires HTTPS, localhost, or a .onion address.** Plain HTTP on a public domain will not work — `crypto.subtle` is unavailable in insecure contexts.
+> **Note:** Web Crypto API requires either **HTTPS**, **localhost**, or a **.onion** address. Plain HTTP on a public domain will not work.
 
 ---
 
 ## Embedding fonts (optional)
 
-By default the app uses a system monospace font stack. To embed [Share Tech Mono](https://fonts.google.com/specimen/Share+Tech+Mono) and [VT323](https://fonts.google.com/specimen/VT323) as base64 data URIs for a consistent look everywhere including air-gapped machines:
+By default the app uses a system monospace font stack that looks clean on most systems. To embed [Share Tech Mono](https://fonts.google.com/specimen/Share+Tech+Mono) and [VT323](https://fonts.google.com/specimen/VT323) as base64 for a consistent look everywhere including air-gapped machines:
 
 ```bash
 python3 embed-fonts.py
 ```
 
-This makes a one-time request from **your machine** to Google's font CDN, then splices the fonts into `app.css`. After that, the app makes zero network requests.
+This makes a single outbound request from **your machine** to Google's font CDN, then splices the fonts into `app.css` as data URIs. After that, the app makes zero network requests.
 
 ---
 
-## Cryptographic architecture
-
-### Signing keys (per-user identity)
-
-Three algorithms available at registration — all generated via the browser's native Web Crypto API:
-
-| Algorithm | Security | Notes |
-|---|---|---|
-| ECDSA P-256 | 128-bit | Recommended. Fast, universally supported. |
-| ECDSA P-384 | 192-bit | Stronger. Slightly slower generation. |
-| RSA-PSS 2048 | ~112-bit | Classical RSA. Large keys, slowest generation. |
-
-- ECDSA P-256 signs with SHA-256; P-384 signs with SHA-384.
-- Private keys are exported as PKCS#8 PEM and shown once. Re-import is supported for all three algorithm types on all major browsers.
-
-### DM encryption (ECDH P-256)
-
-A dedicated ECDH P-256 keypair is auto-generated alongside your signing key.
-
-1. Your ECDH public key is included in your identity export.
-2. When opening a DM, both parties derive the same AES-256-GCM key independently using `ECDH.deriveKey`.
-3. No shared key is ever transmitted. Each DM message is signed with your ECDSA key and encrypted with the derived AES key.
-4. Your ECDH private key is stored in localStorage wrapped with AES-GCM (key derived from your fingerprint via PBKDF2, 100,000 iterations).
-
-### Channel encryption (PBKDF2 + AES-256-GCM)
-
-1. Set a passphrase in the channel header.
-2. The app derives an AES-256-GCM key via PBKDF2 (200,000 iterations, SHA-256) using a deterministic per-channel salt: `SHA-256("cipher-channel:<channel>")`.
-3. Each message is encrypted with a fresh random 12-byte IV. The full signed envelope (text, signature, public key, metadata) is encrypted — only the author hint (first 6 hex chars of fingerprint) is stored in plaintext.
-4. Users without the passphrase see the message locked. Users with the wrong passphrase see a decryption failure.
-
-### Security model summary
+## Security model
 
 | Property | Status |
 |---|---|
-| Channel message encryption | ✓ AES-256-GCM, PBKDF2-derived passphrase key |
-| DM encryption | ✓ AES-256-GCM, ECDH P-256 shared key |
-| Message authentication | ✓ ECDSA P-256/P-384 or RSA-PSS signatures |
-| Private signing key storage | ✗ Never stored — shown once at registration |
-| ECDH DM key storage | ✓ Stored encrypted (PBKDF2-wrapped AES-GCM) |
-| Transport security | Depends on host (use HTTPS or .onion) |
-| Anonymity | Depends on host — use OnionShare + Tor Browser |
-| Screenshot prevention | ⚠ Deterrents only — OS capture cannot be blocked |
+| Message authentication | ✓ ECDSA / RSA-PSS signatures |
+| Private key storage | ✗ Never stored — shown once |
+| Message encryption | ✗ Messages are signed, not encrypted |
+| Transport security | Depends on host (HTTPS / .onion) |
+| Anonymity | Depends on host — use OnionShare + Tor for anonymity |
+
+**Messages are authenticated but not encrypted.** Anyone who can load the page can read all messages. Signatures prove who sent a message and that it hasn't been tampered with — they do not hide the content.
+
+For encrypted direct messages, a future version could add ECDH key exchange. Contributions welcome.
 
 ---
 
-## Recovering your identity
+## Key algorithms
 
-Your signing private key is never stored. To sign back in:
+Three options at registration:
 
-1. Go to the **Import Key** tab
-2. Paste your signing private key (PKCS#8 PEM — the one shown during registration)
-3. Your fingerprint, DM key, and message history are automatically restored from localStorage
+| Algorithm | Notes |
+|---|---|
+| ECDSA P-256 | Default. Fast, widely supported, 128-bit security |
+| ECDSA P-384 | Stronger, slightly slower, 192-bit security |
+| RSA-PSS 2048 | Classical RSA, larger keys, slower generation |
 
-To move to another device:
+All use the browser's native [Web Crypto API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API). No crypto libraries are bundled.
 
-1. Export a **Full Backup** from the sidebar
-2. On the new device, drop the backup JSON onto the Import tab
-3. Paste your private signing key
-4. All history, user keys, and DM threads are restored
+---
+
+## Reconnecting / recovering your identity
+
+Your private key is **not stored** after registration. To sign in again:
+
+1. Go to **Import Key** tab
+2. Paste your private key (PKCS#8 PEM format)
+3. Your identity is re-derived from it — no username or password needed
+
+To move to another device, export a backup from the sidebar (**↓ Export Full Backup**) and drag it into the Import Key tab on the new device, then paste your private key.
 
 ---
 
 ## Browser support
 
-Requires Web Crypto API: Firefox, Chrome, Brave, Safari, Tor Browser.
+Any modern browser with Web Crypto API support: Firefox, Chrome, Safari, Brave, Tor Browser.
 
-- **Tor Browser:** Security level must be **Standard** or **Safer**. The **Safest** level disables JavaScript entirely.
-- **Firefox:** Key import uses a JWK round-trip path for full compatibility.
-- **Extensions:** Some wallet extensions (e.g. MetaMask) run SES lockdown on page load. Disable them on the page if crypto operations fail.
-
----
-
-## localStorage keys
-
-| Key | Contents |
-|---|---|
-| `cipher_users` | Public key registry: handle, public key PEM, fingerprint, algo, DH public key |
-| `cipher_msgs_<channel>` | Up to 200 encrypted messages per channel |
-| `cipher_dm_<fpA>_<fpB>` | DM thread (fingerprints sorted, order-independent) |
-| `cipher_dh_<fingerprint>` | ECDH private key (AES-GCM wrapped) |
-| `cipher_my_fingerprint` | Last authenticated fingerprint (for returning user detection) |
-
-All message content is stored as ciphertext. Public keys and fingerprints are stored in plaintext.
+Tor Browser's `about:config` security level must be set to **Standard** or **Safer** — the **Safest** level disables JavaScript entirely.
 
 ---
 
@@ -170,4 +117,4 @@ All message content is stored as ciphertext. Public keys and fingerprints are st
 
 MIT License — see [LICENSE](LICENSE).
 
-Free to use, modify, and distribute for any purpose. Attribution appreciated but not required.
+Free to use, modify, and distribute for any purpose. Attribution appreciated but not required beyond keeping the copyright notice.

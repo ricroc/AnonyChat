@@ -1077,3 +1077,78 @@ header {
   padding: 2px 6px;
   border: 1px solid #ff444433;
 }
+
+/* ─── PWA / MOBILE ────────────────────────────────── */
+
+/* Safe area insets for notched phones (iPhone X+, Android) */
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+/* Prevent double-tap zoom on buttons */
+button, select, input, textarea {
+  touch-action: manipulation;
+}
+
+/* Larger touch targets on mobile */
+@media (max-width: 600px) {
+  .btn, button {
+    min-height: 44px;
+  }
+
+  .channel-item, .user-item, .dm-item {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  /* Stack sidebar below chat on narrow screens */
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    max-height: 140px;
+    overflow-y: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .sidebar-section {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  /* Full width input bar */
+  .input-row {
+    padding: 8px;
+  }
+
+  #msg-input {
+    font-size: 16px; /* prevents iOS auto-zoom on focus */
+  }
+
+  /* Lock screen fits small screens */
+  .lock-box {
+    margin: 8px;
+    padding: 16px;
+  }
+
+  .key-display {
+    font-size: 9px;
+    max-height: 80px;
+  }
+}
+
+/* Standalone PWA — hide browser chrome artifacts */
+@media (display-mode: standalone) {
+  body {
+    overscroll-behavior: none;
+  }
+}
