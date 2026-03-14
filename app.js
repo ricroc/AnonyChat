@@ -102,30 +102,50 @@ async function importSigningPrivKey(pem) {
     throw new Error('Could not decode key — it may be corrupted or truncated during copy. (' + e.message + ')');
   }
 
-  // Try every algorithm this app has ever generated — newest first.
-  const candidates = [
-    { name: 'ECDSA', namedCurve: 'P-384' },
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    { name: 'RSA-PSS', hash: 'SHA-256' },
-  ];
-  const errors = [];
-  for (const alg of candidates) {
+  // Try every algorithm + usage combination this app has ever generated.
+  // Firefox enforces that the usage passed to importKey matches the key's
+  // intended usage — ECDH keys (deriveKey) cannot be imported with ['sign'].
+  // So we try both usages and re-export via JWK to get the right CryptoKey.
+  const ecCurves  = ['P-384', 'P-256'];
+  const errors    = [];
+
+  for (const curve of ecCurves) {
+    const alg = { name: 'ECDSA', namedCurve: curve };
+    // Try direct ECDSA import first (key was generated as signing key)
     try {
       const key = await crypto.subtle.importKey('pkcs8', der, alg, true, ['sign']);
       const pub = await deriveSigningPub(key, alg);
       return { privateKey: key, publicKey: pub, algorithm: alg };
     } catch (e) {
-      errors.push((alg.namedCurve || alg.name) + ': [' + (e.constructor && e.constructor.name || 'Error') + '] ' + (e.message || String(e)));
+      errors.push('ECDSA ' + curve + ' [sign]: ' + (e.message || e));
+    }
+    // Try importing as ECDH (key may have been generated as DM/ECDH key),
+    // then re-import the raw JWK bytes as ECDSA so it can sign.
+    try {
+      const dhAlg  = { name: 'ECDH', namedCurve: curve };
+      const dhKey  = await crypto.subtle.importKey('pkcs8', der, dhAlg, true, ['deriveKey']);
+      const jwk    = await crypto.subtle.exportKey('jwk', dhKey);
+      // Flip the key_ops so we can import as ECDSA
+      jwk.key_ops = ['sign'];
+      const sigKey = await crypto.subtle.importKey('jwk', jwk, alg, true, ['sign']);
+      const pub    = await deriveSigningPub(sigKey, alg);
+      return { privateKey: sigKey, publicKey: pub, algorithm: alg };
+    } catch (e) {
+      errors.push('ECDH→ECDSA ' + curve + ': ' + (e.message || e));
     }
   }
-  // All algorithms failed — the most common cause is pasting the wrong key.
-  // Provide a concrete diagnostic.
-  throw new Error(
-    'Could not import key with any known algorithm. ' +
-    'Most likely cause: you copied the wrong key — make sure you are pasting the ' +
-    '"Signing Private Key" (-----BEGIN PRIVATE KEY-----), not the public key or DM key. ' +
-    'Technical detail: ' + errors.join(' | ')
-  );
+
+  // RSA-PSS
+  try {
+    const alg = { name: 'RSA-PSS', hash: 'SHA-256' };
+    const key = await crypto.subtle.importKey('pkcs8', der, alg, true, ['sign']);
+    const pub = await deriveSigningPub(key, alg);
+    return { privateKey: key, publicKey: pub, algorithm: alg };
+  } catch (e) {
+    errors.push('RSA-PSS: ' + (e.message || e));
+  }
+
+  throw new Error('Import failed. Errors: ' + errors.join(' | '));
 }
 
 async function deriveSigningPub(privateKey, alg) {
