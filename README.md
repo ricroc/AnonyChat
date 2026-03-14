@@ -1,3 +1,5 @@
+#donate simianshampoo522@walletofsatoshi.com
+
 # CIPHER//NET
 
 A self-hosted, single-page encrypted chat application. No accounts, no servers, no tracking — just cryptographic keypairs, signed messages, and end-to-end encryption.
