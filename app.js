@@ -2,18 +2,18 @@
 
 // ═══════════════════════════════════════════════════════
 // CRYPTO CONSTANTS — strongest settings throughout
-//   Signing:   ECDSA P-384 + SHA-384
-//   DM keys:   ECDH  P-384
+//   Signing:   ECDSA P-256 + SHA-256
+//   DM keys:   ECDH  P-256
 //   Symmetric: AES-256-GCM, 96-bit random IV
-//   KDF:       PBKDF2-SHA-384, 600 000 iterations (channels)
-//              PBKDF2-SHA-384, 300 000 iterations (DH key wrap)
+//   KDF:       PBKDF2-SHA-256, 600 000 iterations (channels)
+//              PBKDF2-SHA-256, 300 000 iterations (DH key wrap)
 // ═══════════════════════════════════════════════════════
-const SIGN_ALG  = { name: 'ECDSA',  namedCurve: 'P-384' };
-const SIGN_USE  = { name: 'ECDSA',  hash: 'SHA-384' };
-const DH_ALG    = { name: 'ECDH',   namedCurve: 'P-384' };
+const SIGN_ALG  = { name: 'ECDSA',  namedCurve: 'P-256' };
+const SIGN_USE  = { name: 'ECDSA',  hash: 'SHA-256' };
+const DH_ALG    = { name: 'ECDH',   namedCurve: 'P-256' };
 const AES_ALG   = { name: 'AES-GCM', length: 256 };
-const KDF_CHAN  = { name: 'PBKDF2', hash: 'SHA-384', iterations: 600_000 };
-const KDF_WRAP  = { name: 'PBKDF2', hash: 'SHA-384', iterations: 300_000 };
+const KDF_CHAN  = { name: 'PBKDF2', hash: 'SHA-256', iterations: 600_000 };
+const KDF_WRAP  = { name: 'PBKDF2', hash: 'SHA-256', iterations: 300_000 };
 
 // ═══════════════════════════════════════════════════════
 // STATE
@@ -35,7 +35,7 @@ const state = {
 };
 
 const CHANNEL_DESCS = {
-  general: 'AES-256-GCM · PBKDF2-SHA384 · ECDSA-P384 signed',
+  general: 'AES-256-GCM · PBKDF2-SHA384 · ECDSA-P256 signed',
   random:  'AES-256-GCM encrypted · shared passphrase',
   tech:    'AES-256-GCM encrypted · shared passphrase',
 };
@@ -66,7 +66,7 @@ async function exportPrivPem(key) { return toPem(await crypto.subtle.exportKey('
 async function exportPubPem(key)  { return toPem(await crypto.subtle.exportKey('spki',  key), 'PUBLIC KEY'); }
 
 // ═══════════════════════════════════════════════════════
-// SIGNING — ECDSA P-384 / SHA-384
+// SIGNING — ECDSA P-256 / SHA-256
 // ═══════════════════════════════════════════════════════
 
 async function generateSigningKeypair() {
@@ -106,7 +106,7 @@ async function importSigningPrivKey(pem) {
   // Firefox enforces that the usage passed to importKey matches the key's
   // intended usage — ECDH keys (deriveKey) cannot be imported with ['sign'].
   // So we try both usages and re-export via JWK to get the right CryptoKey.
-  const ecCurves  = ['P-384', 'P-256'];
+  const ecCurves  = ['P-256'];
   const errors    = [];
 
   for (const curve of ecCurves) {
@@ -160,28 +160,28 @@ async function deriveSigningPub(privateKey, alg) {
 }
 
 async function fingerprint(pubKeyPem) {
-  const hash = await crypto.subtle.digest('SHA-384', new TextEncoder().encode(pubKeyPem));
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pubKeyPem));
   return Array.from(new Uint8Array(hash)).slice(0, 10).map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
 async function signData(text, signingKey, alg) {
   alg = alg || SIGN_ALG;
   const sigAlg = alg.name === 'ECDSA'
-    ? { name: 'ECDSA', hash: alg.namedCurve === 'P-384' ? 'SHA-384' : 'SHA-256' }
+    ? { name: 'ECDSA', hash: 'SHA-256' }
     : { name: 'RSA-PSS', saltLength: 32 };
   const sig = await crypto.subtle.sign(sigAlg, signingKey, new TextEncoder().encode(text));
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
 async function verifyData(text, sigB64, pubKeyPem, alg) {
-  // alg is optional — defaults to P-384 but accepts legacy P-256 / RSA-PSS
+  // alg is optional — defaults to P-256
   try {
     alg = alg || SIGN_ALG;
     const importAlg = alg.name === 'ECDSA'
-      ? { name: 'ECDSA', namedCurve: alg.namedCurve || 'P-384' }
+      ? { name: 'ECDSA', namedCurve: alg.namedCurve || 'P-256' }
       : { name: 'RSA-PSS', hash: 'SHA-256' };
     const verAlg = alg.name === 'ECDSA'
-      ? { name: 'ECDSA', hash: alg.namedCurve === 'P-384' ? 'SHA-384' : 'SHA-256' }
+      ? { name: 'ECDSA', hash: 'SHA-256' }
       : { name: 'RSA-PSS', saltLength: 32 };
     const key = await crypto.subtle.importKey('spki', fromPem(pubKeyPem), importAlg, false, ['verify']);
     return crypto.subtle.verify(verAlg, key,
@@ -191,7 +191,7 @@ async function verifyData(text, sigB64, pubKeyPem, alg) {
 }
 
 // ═══════════════════════════════════════════════════════
-// ECDH P-384 — DM key exchange
+// ECDH P-256 — DM key exchange
 // ═══════════════════════════════════════════════════════
 
 async function generateDHKeypair() {
@@ -235,7 +235,7 @@ async function loadDHPrivKey(fp) {
 
 async function derivePersistKey(fp) {
   const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(fp), 'PBKDF2', false, ['deriveKey']);
-  const salt  = await crypto.subtle.digest('SHA-384', new TextEncoder().encode('cipher-dh-wrap:' + fp));
+  const salt  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('cipher-dh-wrap:' + fp));
   return crypto.subtle.deriveKey(
     { ...KDF_WRAP, salt },
     base, AES_ALG, false, ['encrypt', 'decrypt']
@@ -273,7 +273,7 @@ async function aesDecrypt(b64, key) {
 async function deriveChannelKey(passphrase, channel) {
   const enc  = new TextEncoder();
   const base = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
-  const salt = await crypto.subtle.digest('SHA-384', enc.encode('cipher-channel:' + channel));
+  const salt = await crypto.subtle.digest('SHA-256', enc.encode('cipher-channel:' + channel));
   return crypto.subtle.deriveKey({ ...KDF_CHAN, salt }, base, AES_ALG, false, ['encrypt', 'decrypt']);
 }
 
@@ -527,7 +527,7 @@ async function confirmDMKeyExchange() {
     closeDMModal();
     const peer = getStoredUsers()[fp];
     if (peer) activateDMView(peer);
-    toast('DM key established — ECDH P-384');
+    toast('DM key established — ECDH P-256');
   } catch (e) {
     showDMModalError('Key derivation failed: ' + e.message);
   }
@@ -547,7 +547,7 @@ function activateDMView(peer) {
   dmItem.classList.add('active');
 
   $('channel-title').textContent = '@' + peer.handle;
-  $('channel-desc').textContent  = 'ECDH P-384 end-to-end encrypted direct message';
+  $('channel-desc').textContent  = 'ECDH P-256 end-to-end encrypted direct message';
   $('passphrase-wrap').classList.add('hidden');
   $('dm-header-info').classList.remove('hidden');
   $('dm-fp').textContent = 'fp:' + peer.fingerprint.slice(0, 12);
@@ -623,7 +623,7 @@ async function sendDM(text) {
   const ciphertext = await aesEncrypt(envelope, dmKey);
 
   persist(dmStorageKey(state.me.fingerprint, fp), { ciphertext, ts, authorHint: state.me.fingerprint.slice(0, 6) });
-  renderMessage({ text, author: state.me.handle, fingerprint: state.me.fingerprint, ts, verified: true, enc: 'ECDH-P384+AES', dm: true });
+  renderMessage({ text, author: state.me.handle, fingerprint: state.me.fingerprint, ts, verified: true, enc: 'ECDH-P256+AES', dm: true });
   scrollToBottom();
 }
 
@@ -665,7 +665,7 @@ async function loadDMHistory(peerFp) {
     try {
       const env      = JSON.parse(await aesDecrypt(entry.ciphertext, dmKey));
       const verified = await verifyData(env.sigPayload, env.sig, env.publicKeyPem, env.algo);
-      renderMessage({ text: env.text, author: env.handle, fingerprint: env.from, ts: env.ts, verified, enc: 'ECDH-P384+AES', dm: true });
+      renderMessage({ text: env.text, author: env.handle, fingerprint: env.from, ts: env.ts, verified, enc: 'ECDH-P256+AES', dm: true });
     } catch { renderLocked(entry.ts, entry.authorHint, true); }
   }
   scrollToBottom();
@@ -751,7 +751,7 @@ function exportIdentity() {
     publicKeyPem: state.me.publicKeyPem,
     dhPubKeyPem:  state.me.dhPubKeyPem,
     exportedAt: new Date().toISOString(),
-    note: 'Public keys only. Safe to share. Includes ECDH P-384 DM key.',
+    note: 'Public keys only. Safe to share. Includes ECDH P-256 DM key.',
   }, 'cipher-identity-' + state.me.handle + '.json');
   toast('Public identity exported');
 }
@@ -914,16 +914,16 @@ function updateMsgInput() {
   if (state.view === 'dm') {
     const hasDmKey = state.dmPeer && !!state.dmKeys[state.dmPeer.fingerprint];
     enabled     = hasDmKey;
-    placeholder = hasDmKey ? 'DM @' + state.dmPeer.handle + ' (ECDH P-384 encrypted)...' : 'Establishing DM key...';
+    placeholder = hasDmKey ? 'DM @' + state.dmPeer.handle + ' (ECDH P-256 encrypted)...' : 'Establishing DM key...';
     hint        = hasDmKey
-      ? '> ECDH-P384 · AES-256-GCM · ECDSA-P384 SIGNED · to:' + state.dmPeer.handle
+      ? '> ECDH-P384 · AES-256-GCM · ECDSA-P256 SIGNED · to:' + state.dmPeer.handle
       : '> DM KEY NOT YET ESTABLISHED';
   } else {
     const hasKey = !!state.channelKeys[state.channel];
     enabled     = hasKey;
     placeholder = hasKey ? 'Message #' + state.channel + ' (AES-256-GCM encrypted)...' : 'Set a channel passphrase to send...';
     hint        = hasKey
-      ? '> ' + state.me.handle.toUpperCase() + ' · AES-256-GCM · ECDSA-P384 SIGNED · fp:' + state.me.fingerprint
+      ? '> ' + state.me.handle.toUpperCase() + ' · AES-256-GCM · ECDSA-P256 SIGNED · fp:' + state.me.fingerprint
       : '> SET A CHANNEL PASSPHRASE — PBKDF2-SHA384 · 600k iterations · AES-256-GCM';
   }
   $('msg-input').disabled    = !enabled;
