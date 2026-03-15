@@ -1,6 +1,6 @@
 # CIPHER//NET
 
-A self-hosted, single-page encrypted chat application. No accounts, no servers, no tracking — just cryptographic keypairs, signed messages, and end-to-end encryption.
+A self-hosted, single-page encrypted chat application. No accounts, no tracking — just cryptographic keypairs, signed messages, and end-to-end encryption.
 
 Built to run on [OnionShare](https://onionshare.org/), but works on any static web host over HTTPS.
 
