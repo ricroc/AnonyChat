@@ -1213,3 +1213,285 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
 })();
+
+// ═══════════════════════════════════════════════════════
+// PGP / GPG / KLEOPATRA INTEGRATION  (requires openpgp.min.js)
+// ═══════════════════════════════════════════════════════
+
+// Holds the active OpenPGP key derived from the current CIPHER//NET identity
+const pgpState = {
+  privateKey: null,   // openpgp.PrivateKey
+  publicKey:  null,   // openpgp.PublicKey
+};
+
+// ── Helpers ──────────────────────────────────────────
+
+function pgpAvailable() {
+  if (typeof openpgp === 'undefined') {
+    toast('openpgp.min.js not loaded — see GET_OPENPGP.md');
+    return false;
+  }
+  return true;
+}
+
+function pgpShowPanel(name) {
+  ['export','import','encrypt','decrypt'].forEach(p => {
+    const el = $('pgp-panel-' + p);
+    if (el) el.classList.toggle('hidden', p !== name);
+  });
+}
+
+function pgpShowModal(panel, title) {
+  $('pgp-modal-title').textContent = '// PGP — ' + title;
+  pgpShowPanel(panel);
+  $('pgp-modal').classList.remove('hidden');
+}
+
+function pgpCloseModal() {
+  $('pgp-modal').classList.add('hidden');
+}
+
+function pgpErr(id, msg) {
+  const el = $(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function pgpClearErr(id) {
+  const el = $(id);
+  if (el) { el.textContent = ''; el.classList.add('hidden'); }
+}
+
+function pgpDownload(content, filename) {
+  const url = URL.createObjectURL(new Blob([content], { type: 'application/pgp-keys' }));
+  const a   = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// ── A: Export PGP keypair derived from CIPHER//NET identity ──────────────
+
+async function pgpExportKeypair() {
+  if (!pgpAvailable() || !state.me) { toast('Sign in first'); return; }
+  pgpClearErr('pgp-export-error');
+
+  const btn = $('pgp-export-btn');
+  btn.textContent = 'GENERATING...'; btn.disabled = true;
+
+  try {
+    const uid        = $('pgp-uid').value.trim() || state.me.handle + ' <' + state.me.handle + '@ciphernet>';
+    const passphrase = $('pgp-export-pass').value || undefined;
+
+    // Generate a fresh OpenPGP keypair (RSA-4096 for maximum Kleopatra compat)
+    // We generate a new PGP key rather than converting the ECDSA key because
+    // OpenPGP uses a different key format and Ed25519/ECDSA conversion is lossy.
+    // The PGP key is a companion key — it shares your handle/UID identity.
+    const { privateKey, publicKey } = await openpgp.generateKey({
+      type: 'rsa',
+      rsaBits: 4096,
+      userIDs: [{ name: uid }],
+      passphrase,
+      format: 'armored',
+    });
+
+    $('pgp-pub-out').value = publicKey;
+    $('pgp-sec-out').value = privateKey;
+    $('pgp-export-output').classList.remove('hidden');
+    toast('PGP keypair generated');
+
+    // Cache for encrypt/decrypt operations this session
+    const parsed = await openpgp.readPrivateKey({ armoredKey: privateKey });
+    pgpState.publicKey  = await openpgp.readKey({ armoredKey: publicKey });
+    pgpState.privateKey = passphrase
+      ? await openpgp.decryptKey({ privateKey: parsed, passphrase })
+      : parsed;
+
+  } catch (e) {
+    pgpErr('pgp-export-error', 'Export failed: ' + e.message);
+  }
+  btn.textContent = 'GENERATE PGP KEYPAIR'; btn.disabled = false;
+}
+
+// ── B / C: Import an existing GPG / Kleopatra private key ────────────────
+
+async function pgpImportKey() {
+  if (!pgpAvailable()) return;
+  pgpClearErr('pgp-import-error');
+
+  const armoredKey = $('pgp-import-key').value.trim();
+  const passphrase = $('pgp-import-pass').value || undefined;
+  if (!armoredKey) { pgpErr('pgp-import-error', 'Paste your armored private key.'); return; }
+
+  const btn = $('pgp-import-btn');
+  btn.textContent = 'IMPORTING...'; btn.disabled = true;
+
+  try {
+    const privateKey = await openpgp.readPrivateKey({ armoredKey });
+    const decrypted  = passphrase
+      ? await openpgp.decryptKey({ privateKey, passphrase })
+      : privateKey;
+
+    pgpState.privateKey = decrypted;
+    pgpState.publicKey  = decrypted.toPublic();
+
+    const uid = decrypted.getUserIDs()[0] || 'unknown';
+    const fp  = decrypted.getFingerprint().toUpperCase();
+
+    toast('GPG key imported: ' + uid);
+    pgpErr('pgp-import-error', ''); // clear
+    const el = $('pgp-import-error');
+    if (el) {
+      el.textContent = '✓ Imported: ' + uid + '\n  fp: ' + fp;
+      el.style.color = 'var(--green3)';
+      el.classList.remove('hidden');
+    }
+  } catch (e) {
+    pgpErr('pgp-import-error', 'Import failed: ' + e.message);
+  }
+  btn.textContent = 'IMPORT GPG KEY'; btn.disabled = false;
+}
+
+// ── B: Encrypt a message with PGP (signed + encrypted) ───────────────────
+
+async function pgpEncryptMessage() {
+  if (!pgpAvailable()) return;
+  pgpClearErr('pgp-encrypt-error');
+
+  if (!pgpState.privateKey) {
+    pgpErr('pgp-encrypt-error', 'No PGP key loaded. Export a keypair or import a GPG key first.');
+    return;
+  }
+
+  const recipientArmored = $('pgp-enc-pubkey').value.trim();
+  const plaintext        = $('pgp-enc-plain').value;
+  if (!recipientArmored) { pgpErr('pgp-encrypt-error', 'Paste the recipient\'s PGP public key.'); return; }
+  if (!plaintext)        { pgpErr('pgp-encrypt-error', 'Enter a message to encrypt.'); return; }
+
+  const btn = $('pgp-enc-btn');
+  btn.textContent = 'ENCRYPTING...'; btn.disabled = true;
+
+  try {
+    const recipientKey = await openpgp.readKey({ armoredKey: recipientArmored });
+    const encrypted    = await openpgp.encrypt({
+      message:            await openpgp.createMessage({ text: plaintext }),
+      encryptionKeys:     recipientKey,
+      signingKeys:        pgpState.privateKey,
+      format:             'armored',
+    });
+    $('pgp-enc-out').value = encrypted;
+    $('pgp-enc-out-group').classList.remove('hidden');
+    toast('Message encrypted & signed');
+  } catch (e) {
+    pgpErr('pgp-encrypt-error', 'Encryption failed: ' + e.message);
+  }
+  btn.textContent = 'ENCRYPT & SIGN'; btn.disabled = false;
+}
+
+// ── B: Decrypt a PGP message ─────────────────────────────────────────────
+
+async function pgpDecryptMessage() {
+  if (!pgpAvailable()) return;
+  pgpClearErr('pgp-decrypt-error');
+
+  if (!pgpState.privateKey) {
+    pgpErr('pgp-decrypt-error', 'No PGP key loaded. Export a keypair or import a GPG key first.');
+    return;
+  }
+
+  const armoredMsg    = $('pgp-dec-cipher').value.trim();
+  const senderArmored = $('pgp-dec-pubkey').value.trim();
+  if (!armoredMsg) { pgpErr('pgp-decrypt-error', 'Paste the encrypted PGP message.'); return; }
+
+  const btn = $('pgp-dec-btn');
+  btn.textContent = 'DECRYPTING...'; btn.disabled = true;
+
+  try {
+    const message = await openpgp.readMessage({ armoredMessage: armoredMsg });
+
+    const decryptOpts = {
+      message,
+      decryptionKeys: pgpState.privateKey,
+      format: 'utf8',
+    };
+
+    if (senderArmored) {
+      decryptOpts.verificationKeys = await openpgp.readKey({ armoredKey: senderArmored });
+    }
+
+    const { data, signatures } = await openpgp.decrypt(decryptOpts);
+    $('pgp-dec-out').value = data;
+    $('pgp-dec-out-group').classList.remove('hidden');
+
+    // Signature status
+    const sigEl = $('pgp-dec-sig-status');
+    if (sigEl) {
+      if (!senderArmored) {
+        sigEl.textContent = '⚠ No sender key provided — signature not verified';
+        sigEl.className   = 'pgp-sig-status warn';
+      } else {
+        try {
+          await signatures[0].verified;
+          sigEl.textContent = '✓ SIGNATURE VALID';
+          sigEl.className   = 'pgp-sig-status ok';
+        } catch {
+          sigEl.textContent = '✗ SIGNATURE INVALID';
+          sigEl.className   = 'pgp-sig-status fail';
+        }
+      }
+    }
+    toast('Message decrypted');
+  } catch (e) {
+    pgpErr('pgp-decrypt-error', 'Decryption failed: ' + e.message);
+  }
+  btn.textContent = 'DECRYPT'; btn.disabled = false;
+}
+
+// ── Wire up PGP UI ────────────────────────────────────────────────────────
+
+function initPGP() {
+  // Open modals
+  $('btn-pgp-export').addEventListener('click', () => pgpShowModal('export', 'EXPORT KEYPAIR'));
+  $('btn-pgp-import').addEventListener('click', () => pgpShowModal('import', 'IMPORT GPG KEY'));
+  $('btn-pgp-encrypt').addEventListener('click', () => {
+    if (!pgpState.privateKey) { toast('Load a PGP key first — export or import'); pgpShowModal('export', 'EXPORT KEYPAIR'); return; }
+    pgpShowModal('encrypt', 'ENCRYPT MESSAGE');
+  });
+  $('btn-pgp-decrypt').addEventListener('click', () => {
+    if (!pgpState.privateKey) { toast('Load a PGP key first — export or import'); pgpShowModal('import', 'IMPORT GPG KEY'); return; }
+    pgpShowModal('decrypt', 'DECRYPT MESSAGE');
+  });
+
+  // Close buttons
+  $('pgp-export-cancel').addEventListener('click', pgpCloseModal);
+  $('pgp-import-cancel').addEventListener('click', pgpCloseModal);
+  $('pgp-enc-cancel').addEventListener('click',    pgpCloseModal);
+  $('pgp-dec-cancel').addEventListener('click',    pgpCloseModal);
+
+  // Close on backdrop click
+  $('pgp-modal').addEventListener('click', e => {
+    if (e.target === $('pgp-modal')) pgpCloseModal();
+  });
+
+  // Actions
+  $('pgp-export-btn').addEventListener('click', pgpExportKeypair);
+  $('pgp-import-btn').addEventListener('click', pgpImportKey);
+  $('pgp-enc-btn').addEventListener('click',    pgpEncryptMessage);
+  $('pgp-dec-btn').addEventListener('click',    pgpDecryptMessage);
+
+  // Copy / download buttons
+  $('pgp-copy-pub').addEventListener('click', () => {
+    navigator.clipboard.writeText($('pgp-pub-out').value).then(() => toast('Public key copied'));
+  });
+  $('pgp-copy-sec').addEventListener('click', () => {
+    navigator.clipboard.writeText($('pgp-sec-out').value).then(() => toast('Secret key copied'));
+  });
+  $('pgp-copy-enc').addEventListener('click', () => {
+    navigator.clipboard.writeText($('pgp-enc-out').value).then(() => toast('Encrypted message copied'));
+  });
+  $('pgp-dl-pub').addEventListener('click', () => pgpDownload($('pgp-pub-out').value, 'ciphernet-public.asc'));
+  $('pgp-dl-sec').addEventListener('click', () => pgpDownload($('pgp-sec-out').value, 'ciphernet-secret.asc'));
+}
+
+// Call initPGP after DOMContentLoaded (appended to existing boot)
+document.addEventListener('DOMContentLoaded', initPGP);

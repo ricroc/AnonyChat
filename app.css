@@ -1186,3 +1186,58 @@ button, select, input, textarea {
   from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ─── PGP MODAL ───────────────────────────────────── */
+.pgp-modal-box {
+  max-width: 560px;
+  width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.pgp-out {
+  font-size: 9px;
+  line-height: 1.4;
+  background: var(--bg);
+  color: var(--green3);
+  border-color: var(--green-dim);
+  resize: vertical;
+}
+
+.pgp-out-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--green3);
+}
+
+.pgp-out-label.amber { color: var(--amber); }
+
+.pgp-btn-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.pgp-sig-status {
+  font-size: 11px;
+  letter-spacing: 2px;
+  margin-top: 6px;
+  padding: 4px 8px;
+}
+
+.pgp-sig-status.ok   { color: var(--green3); border-left: 2px solid var(--green3); }
+.pgp-sig-status.fail { color: #ff4444;        border-left: 2px solid #ff4444; }
+.pgp-sig-status.warn { color: var(--amber);   border-left: 2px solid var(--amber); }
+
+.sidebar-divider {
+  border-top: 1px solid var(--border);
+  margin: 6px 0;
+}
+
+.sidebar-section-label {
+  font-size: 9px;
+  color: var(--text-faint);
+  letter-spacing: 3px;
+  padding: 0 2px 4px;
+  text-transform: uppercase;
+}

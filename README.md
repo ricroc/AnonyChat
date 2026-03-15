@@ -1,7 +1,3 @@
-#DONATE
-bc1p63r9zr5avtj84hqdty2yg4jpa3d0kncdtp7f3skkv2809w4fpyesyw5njj
-simianshampoo522@walletofsatoshi.com
-
 # CIPHER//NET
 
 A self-hosted, single-page encrypted chat application. No accounts, no servers, no tracking — just cryptographic keypairs, signed messages, and end-to-end encryption.
@@ -35,6 +31,10 @@ Built to run on [OnionShare](https://onionshare.org/), but works on any static w
 - **Export public identity** — share your handle, public signing key, and ECDH DM public key as a JSON file. Safe to distribute.
 - **Export full backup** — exports all encrypted message history, public keys, and DM threads as JSON. Private key is never included.
 - **Import / restore** — drag and drop a backup or identity file on the import tab, then paste your private key. Works across devices.
+- **PGP / GPG / Kleopatra compatibility** — full OpenPGP integration via OpenPGP.js (bundled locally). Three capabilities:
+  - **Export PGP keypair** — generate an RSA-4096 OpenPGP keypair tied to your handle. Export armored public and secret key files (`.asc`) importable directly into GPG or Kleopatra. Optional passphrase protection on the secret key.
+  - **Import existing GPG key** — paste any armored GPG private key (RSA, ECC, protected or unprotected) to load it into the PGP tool for encrypt/decrypt operations.
+  - **Encrypt & decrypt messages** — PGP-encrypt a message for any recipient (paste their public key), signed with your key. Decrypt any PGP-encrypted message sent to you, with signature verification.
 - **ECDH DM key persistence** — your DM keypair is stored encrypted in localStorage (PBKDF2-wrapped AES-GCM) and automatically restored on import.
 - **Password-protected key export** — optionally encrypt your private key before copying. Enter a password on the registration screen before hitting Copy — the key is encrypted with AES-256-GCM (PBKDF2, 300,000 iterations) and stored as a `CIPHER-ENC:v1:...` string. Useless without the password. On import, the password field appears automatically when an encrypted key is detected.
 
@@ -75,6 +75,8 @@ manifest.json    — PWA manifest: name, icons, display mode, theme
 icon-192.png     — home screen icon (192×192)
 icon-512.png     — high-res icon for splash screens (512×512)
 embed-fonts.py   — optional: bakes fonts as base64 for fully offline use
+openpgp.min.js   — OpenPGP.js v5 (must be downloaded separately, see GET_OPENPGP.md)
+GET_OPENPGP.md   — instructions for downloading openpgp.min.js
 README.md        — this file
 ```
 
@@ -169,6 +171,7 @@ Private keys can optionally be exported in an encrypted form safe to store in no
 | Anonymity | Depends on host — use OnionShare + Tor Browser |
 | Screenshot prevention | ⚠ Deterrents only — OS capture cannot be blocked |
 | Offline capability | ✓ Service worker caches all assets after first load |
+| PGP encryption | ✓ OpenPGP.js v5, RSA-4096, armored export, GPG/Kleopatra compatible |
 | Password-protected key export | ✓ AES-256-GCM, PBKDF2-SHA-256, 300k iterations |
 
 ---
@@ -211,6 +214,43 @@ Requires Web Crypto API: Firefox, Chrome, Brave, Safari, Tor Browser.
 | `cipher_my_fingerprint` | Last authenticated fingerprint (for returning user detection) |
 
 All message content is stored as ciphertext. Public keys and fingerprints are stored in plaintext.
+
+---
+
+## PGP / GPG / Kleopatra
+
+CIPHER//NET includes a full OpenPGP tool via [OpenPGP.js v5](https://openpgpjs.org/), bundled locally for offline and OnionShare use.
+
+### Setup
+
+Download `openpgp.min.js` and place it in the repo root alongside `index.html` (see `GET_OPENPGP.md`). The rest of the app works without it — the PGP buttons will show a warning if the file is missing.
+
+### Export PGP Keypair (Option A)
+
+Generates a fresh RSA-4096 OpenPGP keypair associated with your CIPHER//NET handle:
+
+1. Click **PGP EXPORT KEYPAIR** in the sidebar
+2. Optionally enter a PGP User ID (e.g. `Alice <alice@example.com>`) and an export passphrase
+3. Click **GENERATE PGP KEYPAIR**
+4. Download or copy `public.asc` and `secret.asc`
+
+**Importing into Kleopatra:** File → Import → select `secret.asc` → enter passphrase if set.
+**Importing into GPG:** `gpg --import secret.asc`
+
+### Import Existing GPG Key (Option C)
+
+Use your existing Kleopatra/GPG identity inside CIPHER//NET:
+
+1. Export from GPG: `gpg --armor --export-secret-keys YOUR_KEY_ID > secret.asc`
+2. Click **PGP IMPORT GPG KEY** in the sidebar
+3. Paste the armored key and enter your passphrase if protected
+
+### Encrypt & Decrypt Messages (Option B)
+
+PGP messages encrypted here can be decrypted by any GPG/Kleopatra user and vice versa:
+
+- **Encrypt:** paste recipient's public key, type your message, click **ENCRYPT & SIGN** — produces a standard `-----BEGIN PGP MESSAGE-----` block
+- **Decrypt:** paste any PGP message encrypted to your key — optionally paste sender's public key for signature verification
 
 ---
 
