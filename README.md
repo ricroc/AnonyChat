@@ -272,4 +272,4 @@ You should have received a copy of the GNU Affero General Public License along w
 - ✅ If you run a modified version as a network service, you must make your modified source available to users of that service
 - ❌ You cannot take this code, make proprietary changes, and distribute it without releasing those changes
 
-The AGPL's network use clause means that companies can't fork AnonyChat/CipherNet, add features, and deploy it as a paid SaaS product without open-sourcing their version. If you build on CryptoChat, your improvements belong to the community too.
+The AGPL's network use clause means that companies can't fork AnonyChat/CipherNet, add features, and deploy it as a paid SaaS product without open-sourcing their version. If you build on AnonyChat/CipherNet, your improvements belong to the community too.
