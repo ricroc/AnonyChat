@@ -308,10 +308,3 @@ PGP messages encrypted here can be decrypted by any GPG/Kleopatra user and vice 
 - **Encrypt:** paste recipient's public key, type your message, click **ENCRYPT & SIGN** — produces a standard `-----BEGIN PGP MESSAGE-----` block
 - **Decrypt:** paste any PGP message encrypted to your key — optionally paste sender's public key for signature verification
 
----
-
-## License
-
-MIT License — see [LICENSE](LICENSE).
-
-Free to use, modify, and distribute for any purpose. Attribution appreciated but not required.
