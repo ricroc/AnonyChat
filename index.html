@@ -459,6 +459,107 @@ html, body {
   overflow-x: hidden;
 }
 
+/* ── Donation ── */
+.donation {
+  padding: 60px 24px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.donation .section-label { margin-bottom: 12px; }
+
+.donation .section-title {
+  font-family: var(--display);
+  font-size: clamp(22px, 4vw, 36px);
+  color: var(--amber);
+  letter-spacing: 4px;
+  text-shadow: 0 0 12px rgba(255,179,0,0.4);
+  margin-bottom: 12px;
+}
+
+.donation-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 1px;
+  line-height: 1.8;
+  max-width: 480px;
+  margin: 0 auto 32px;
+}
+
+.btc-box {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  background: var(--surface);
+  border: 1px solid #4a3a00;
+  padding: 24px 32px;
+  max-width: 100%;
+}
+
+.btc-label {
+  font-size: 9px;
+  letter-spacing: 4px;
+  color: var(--amber);
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.btc-address {
+  font-family: var(--mono);
+  font-size: clamp(10px, 2.2vw, 14px);
+  color: var(--amber);
+  letter-spacing: 1px;
+  word-break: break-all;
+  text-align: center;
+  text-shadow: 0 0 8px rgba(255,179,0,0.3);
+}
+
+.btc-copy-btn {
+  background: transparent;
+  border: 1px solid #4a3a00;
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 3px;
+  padding: 8px 20px;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.btc-copy-btn:hover {
+  background: rgba(255,179,0,0.08);
+  box-shadow: 0 0 12px rgba(255,179,0,0.2);
+}
+
+.btc-copy-btn.copied {
+  color: var(--green);
+  border-color: var(--green-dim);
+}
+
+.btc-qr {
+  width: 140px;
+  height: 140px;
+  background: #fff;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btc-qr svg {
+  width: 100%;
+  height: 100%;
+}
+
+.btc-note {
+  font-size: 10px;
+  color: var(--text-faint);
+  letter-spacing: 1px;
+  margin-top: 8px;
+}
+
 /* ── Responsive ── */
 @media (max-width: 700px) {
   /* Nav — hide links, just show logo */
@@ -527,7 +628,7 @@ html, body {
     Nothing leaves your device unencrypted.
   </p>
   <div class="hero-btns">
-    <a class="btn-primary" href="app/index.html">TRY APP</a>
+    <a class="btn-primary" href="app/index.html">LAUNCH APP</a>
     <a class="btn-outline" href="https://github.com/retiredroca/AnonyChat" target="_blank" rel="noopener">VIEW SOURCE</a>
   </div>
 
@@ -670,9 +771,28 @@ html, body {
   <div class="cta-title">READY TO TRANSMIT?</div>
   <div class="cta-sub">// No account needed. Generate a keypair and you&apos;re in.</div>
   <div class="cta-btns">
-    <a class="btn-primary" href="app/index.html">TRY CIPHER//NET</a>
+    <a class="btn-primary" href="app/index.html">LAUNCH CIPHER//NET</a>
     <a class="btn-outline" href="https://github.com/retiredroca/AnonyChat/archive/refs/heads/main.zip">DOWNLOAD ZIP</a>
     <a class="btn-outline" href="https://github.com/retiredroca/AnonyChat" target="_blank" rel="noopener">GITHUB REPO</a>
+  </div>
+</section>
+
+<!-- DONATION -->
+<section class="donation">
+  <div class="section-label">// support the project</div>
+  <div class="section-title">DONATE</div>
+  <p class="donation-desc">
+    CIPHER//NET is free, open source, and will always be.<br>
+    If it's useful to you, a small contribution keeps development going.
+  </p>
+  <div class="btc-box">
+    <div class="btc-label">Bitcoin (BTC) — Native SegWit</div>
+    <div class="btc-qr" id="btc-qr-placeholder">
+      <!-- QR rendered by JS below -->
+    </div>
+    <div class="btc-address" id="btc-addr">bc1qrr2tcdmz9ktf3ss73gc6g427k7x90zvdn5jd59</div>
+    <button class="btc-copy-btn" id="btc-copy-btn">COPY ADDRESS</button>
+    <div class="btc-note">// scan QR or copy address · Bitcoin network only</div>
   </div>
 </section>
 
@@ -683,5 +803,64 @@ html, body {
   <span> &mdash; BUILT WITH WEB CRYPTO API &mdash; ZERO SERVERS &mdash; ZERO TRACKING</span>
 </footer>
 
+<script>
+// ── BTC copy button ──
+document.getElementById('btc-copy-btn').addEventListener('click', function() {
+  const addr = 'bc1qrr2tcdmz9ktf3ss73gc6g427k7x90zvdn5jd59';
+  navigator.clipboard.writeText(addr).then(() => {
+    this.textContent = '✓ COPIED';
+    this.classList.add('copied');
+    setTimeout(() => {
+      this.textContent = 'COPY ADDRESS';
+      this.classList.remove('copied');
+    }, 2000);
+  }).catch(() => {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = addr;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    this.textContent = '✓ COPIED';
+    this.classList.add('copied');
+    setTimeout(() => {
+      this.textContent = 'COPY ADDRESS';
+      this.classList.remove('copied');
+    }, 2000);
+  });
+});
+
+// ── QR code — pure JS, no library ──
+// Generates a simple visual QR-like grid using the BTC URI.
+// For a real scannable QR, swap this with a QR library.
+(function renderBTCQR() {
+  const addr    = 'bitcoin:bc1qrr2tcdmz9ktf3ss73gc6g427k7x90zvdn5jd59';
+  const el      = document.getElementById('btc-qr-placeholder');
+  if (!el) return;
+
+  // Use a Google Charts-style URL if network is available,
+  // otherwise show a styled placeholder
+  const img = document.createElement('img');
+  img.alt   = 'BTC QR Code';
+  img.style.cssText = 'width:124px;height:124px;display:block;';
+
+  // Try Google Charts API (works when online, silently fails offline)
+  const qrUrl = 'https://chart.googleapis.com/chart?chs=124x124&cht=qr&chl=' +
+                encodeURIComponent(addr) + '&choe=UTF-8&chld=M|1';
+  img.src = qrUrl;
+
+  img.onerror = function() {
+    // Offline fallback — styled text block
+    el.innerHTML = '';
+    el.style.cssText = 'width:140px;height:140px;background:#111;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;border:1px solid #4a3a00;';
+    el.innerHTML = '<span style="font-size:28px;">₿</span>' +
+                   '<span style="font-size:8px;color:#ffb300;letter-spacing:1px;text-align:center;">SCAN NOT<br>AVAILABLE<br>OFFLINE</span>';
+  };
+
+  el.innerHTML = '';
+  el.appendChild(img);
+})();
+</script>
 </body>
 </html>
