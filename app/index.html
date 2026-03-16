@@ -37,17 +37,19 @@
       <div class="field-group">
         <label class="field-label" for="reg-algo">Signing Algorithm</label>
         <select class="field-input" id="reg-algo">
-          <option value="ECDSA-P256">ECDSA P-256 (recommended)</option>
-          <option value="ECDSA-P384">ECDSA P-384 (stronger)</option>
+          <option value="ML-DSA-65" selected>ML-DSA-65 + ML-KEM-768 ⚛ POST-QUANTUM (default)</option>
+          <option value="ECDSA-P256">ECDSA P-256 (classical)</option>
+          <option value="ECDSA-P384">ECDSA P-384 (classical)</option>
           <option value="RSA-PSS">RSA-PSS 2048 (classical)</option>
         </select>
-        <div class="field-hint">Signs messages. A separate ECDH P-256 keypair is auto-generated for encrypted DMs.</div>
+        <div class="field-hint" id="algo-hint">ML-DSA-65 signing + ML-KEM-768 DM encryption — FIPS 203/204 post-quantum standards. Resistant to quantum computers.</div>
       </div>
       <div id="key-gen-area" class="hidden">
         <div class="progress-bar"><div class="progress-fill" id="gen-progress"></div></div>
         <div class="warning-box">
           <div class="w-title">WARNING: PRIVATE KEY - SHOWN ONCE</div>
           <p>Save your private key now. It will <strong class="amber">NOT</strong> be stored anywhere. If you lose it, your identity is gone forever. Your DM key is derived automatically and persists in localStorage.</p>
+          <p id="pq-key-note" class="hidden" style="margin-top:6px;font-size:11px;color:var(--amber)">⚛ Post-quantum keys are larger than classical keys — this is normal. The full key must be saved to sign in.</p>
         </div>
         <div class="field-group field-group-rel">
           <label class="field-label priv-label">&#9888; SIGNING PRIVATE KEY &mdash; SAVE THIS &mdash; PASTE THIS TO LOG IN</label>
@@ -339,6 +341,7 @@
 </div>
 <div id="screenshot-warn">// SCREENSHOT DETECTED — CONTENT MAY BE CAPTURED</div>
 
+<script src="noble-pq.js"></script>
 <script src="openpgp.min.js"></script>
 <script src="app.js"></script>
 </body>

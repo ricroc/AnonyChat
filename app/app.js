@@ -167,18 +167,24 @@ function getSignAlg(algo) {
   return { name: 'RSA-PSS', saltLength: 32 };
 }
 
-async function signData(text, privateKey, algo) {
-  const sig = await crypto.subtle.sign(getSignAlg(algo), privateKey, new TextEncoder().encode(text));
+async function signData(text, signingKey, algo) {
+  if (algo && algo.name === 'ML-DSA-65') {
+    return signDataPQ(text, signingKey);
+  }
+  const sig = await crypto.subtle.sign(getSignAlg(algo), signingKey, new TextEncoder().encode(text));
   return b64Encode(new Uint8Array(sig));
 }
 
-async function verifyData(text, sigB64, pubKeyPem, algo) {
+async function verifyData(text, sigB64, pubKeyB64, algo) {
   try {
+    if (algo && algo.name === 'ML-DSA-65') {
+      return verifyDataPQ(text, sigB64, pubKeyB64);
+    }
     algo = algo || { name: 'ECDSA', namedCurve: 'P-256' };
     const importAlg = algo.name === 'ECDSA'
       ? { name: 'ECDSA', namedCurve: algo.namedCurve || 'P-256' }
       : { name: 'RSA-PSS', hash: 'SHA-256' };
-    const key = await crypto.subtle.importKey('spki', fromPem(pubKeyPem), importAlg, false, ['verify']);
+    const key = await crypto.subtle.importKey('spki', fromPem(pubKeyB64), importAlg, false, ['verify']);
     return crypto.subtle.verify(getSignAlg(algo), key,
       b64Decode(sigB64),
       new TextEncoder().encode(text));
@@ -256,6 +262,144 @@ async function aesDecrypt(b64, key) {
   const buf   = b64Decode(b64);
   const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0,12) }, key, buf.slice(12));
   return new TextDecoder().decode(plain);
+}
+
+// ═══════════════════════════════════════════════════════
+// POST-QUANTUM CRYPTO — ML-DSA-65 + ML-KEM-768
+// Requires noble-pq.js (noble-post-quantum browser bundle)
+// ML-DSA-65:  FIPS 204 — signing,  ~AES-192 security
+// ML-KEM-768: FIPS 203 — DM KEMs,  ~AES-192 security
+//
+// Key format: raw bytes encoded as base64 (not PKCS#8/PEM)
+// PQ secret keys are large: ML-DSA-65 secretKey = 4032 bytes
+//                           ML-KEM-768 decKey    = 2400 bytes
+// Stored as: PQ-SK:<base64> / PQ-KEM-SK:<base64>
+// ═══════════════════════════════════════════════════════
+
+const PQ_SK_PREFIX     = 'PQ-SK:';
+const PQ_KEM_SK_PREFIX = 'PQ-KEM-SK:';
+
+function pqAvailable() {
+  return typeof noblePostQuantum !== 'undefined' ||
+         (typeof ml_dsa65 !== 'undefined');
+}
+
+function getPQLib() {
+  // noble-post-quantum exposes globals: ml_dsa65, ml_kem768
+  // via the standalone bundle
+  if (typeof ml_dsa65 !== 'undefined') return { ml_dsa65, ml_kem768 };
+  if (typeof noblePostQuantum !== 'undefined')
+    return { ml_dsa65: noblePostQuantum.ml_dsa65, ml_kem768: noblePostQuantum.ml_kem768 };
+  throw new Error('noble-pq.js not loaded — see GET_OPENPGP.md for download instructions.');
+}
+
+function b64ToBytes(b64) {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
+
+function bytesToB64(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)));
+}
+
+// Generate ML-DSA-65 signing keypair.
+// Returns { secretKey: Uint8Array, publicKey: Uint8Array }
+async function generateMLDSAKeypair() {
+  const { ml_dsa65 } = getPQLib();
+  const seed = crypto.getRandomValues(new Uint8Array(32));
+  return ml_dsa65.keygen(seed);
+}
+
+// Sign data with ML-DSA-65 secret key.
+async function signDataPQ(text, secretKey) {
+  const { ml_dsa65 } = getPQLib();
+  const msg = new TextEncoder().encode(text);
+  const sig = ml_dsa65.sign(secretKey, msg);
+  return bytesToB64(sig);
+}
+
+// Verify ML-DSA-65 signature.
+async function verifyDataPQ(text, sigB64, publicKeyB64) {
+  try {
+    const { ml_dsa65 } = getPQLib();
+    const msg = new TextEncoder().encode(text);
+    const sig = b64ToBytes(sigB64);
+    const pub = b64ToBytes(publicKeyB64);
+    return ml_dsa65.verify(pub, sig, msg);
+  } catch { return false; }
+}
+
+// Generate ML-KEM-768 keypair for DM key encapsulation.
+// Returns { publicKey: Uint8Array, secretKey: Uint8Array }
+async function generateMLKEMKeypair() {
+  const { ml_kem768 } = getPQLib();
+  const seed = crypto.getRandomValues(new Uint8Array(64));
+  return ml_kem768.keygen(seed);
+}
+
+// Encapsulate: given recipient's ML-KEM public key,
+// produce { ciphertext: Uint8Array, sharedSecret: Uint8Array }
+// sharedSecret is used to derive AES-256-GCM key.
+async function kemEncapsulate(recipientPubKeyB64) {
+  const { ml_kem768 } = getPQLib();
+  const pub = b64ToBytes(recipientPubKeyB64);
+  return ml_kem768.encapsulate(pub);
+}
+
+// Decapsulate: given our ML-KEM secret key + ciphertext,
+// recover the sharedSecret.
+async function kemDecapsulate(ciphertextB64, secretKeyB64) {
+  const { ml_kem768 } = getPQLib();
+  const ct  = b64ToBytes(ciphertextB64);
+  const sk  = b64ToBytes(secretKeyB64);
+  return ml_kem768.decapsulate(ct, sk);
+}
+
+// Derive AES-256-GCM key from ML-KEM shared secret via HKDF.
+async function kemSharedSecretToAES(sharedSecret) {
+  const base = await crypto.subtle.importKey('raw', sharedSecret, 'HKDF', false, ['deriveKey']);
+  const salt = new TextEncoder().encode('CIPHER//NET-KEM-AES-v1');
+  return crypto.subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-256', salt, info: new Uint8Array(0) },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+  );
+}
+
+// Persist ML-KEM secret key encrypted in localStorage.
+// Uses same PBKDF2 wrapping as classical DH key.
+async function persistPQKEMKey(kemSecretKey, fp) {
+  const wrapKey = await derivePersistKey(fp);
+  const iv      = crypto.getRandomValues(new Uint8Array(12));
+  const wrapped = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, wrapKey, kemSecretKey);
+  const out     = new Uint8Array(12 + wrapped.byteLength);
+  out.set(iv, 0); out.set(new Uint8Array(wrapped), 12);
+  localStorage.setItem('cipher_pqkem_' + fp, bytesToB64(out));
+}
+
+async function loadPQKEMKey(fp) {
+  const stored = localStorage.getItem('cipher_pqkem_' + fp);
+  if (!stored) return null;
+  const buf     = b64ToBytes(stored);
+  const wrapKey = await derivePersistKey(fp);
+  try {
+    const raw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf.slice(0,12) }, wrapKey, buf.slice(12));
+    return new Uint8Array(raw);
+  } catch { return null; }
+}
+
+// Encode PQ secret key for display/export: PQ-SK:<base64>
+function encodePQSecretKey(secretKey) {
+  return PQ_SK_PREFIX + bytesToB64(secretKey);
+}
+
+// Decode PQ secret key from PQ-SK:<base64> string.
+function decodePQSecretKey(str) {
+  if (!str.startsWith(PQ_SK_PREFIX))
+    throw new Error('Not a PQ secret key — expected PQ-SK: prefix.');
+  return b64ToBytes(str.slice(PQ_SK_PREFIX.length));
+}
+
+function isPQKey(str) {
+  return typeof str === 'string' && str.startsWith(PQ_SK_PREFIX);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -363,33 +507,56 @@ async function generateKeys() {
   $('key-gen-area').classList.remove('hidden');
   animateProgress(0, 35, 500);
 
-  let keys;
+  let keys, privPem, pubPem, dhPubPem;
+  const isPQ = (algo === 'ML-DSA-65');
+
   try {
-    if      (algo === 'ECDSA-P256') keys = await generateECDSA('P-256');
-    else if (algo === 'ECDSA-P384') keys = await generateECDSA('P-384');
-    else                            keys = await generateRSAPSS();
+    if (isPQ) {
+      // Show PQ note
+      const note = $('pq-key-note');
+      if (note) note.classList.remove('hidden');
+
+      keys = await generateMLDSAKeypair();
+      animateProgress(35, 65, 400);
+      // ML-KEM-768 for DMs
+      const kemKeys = await generateMLKEMKeypair();
+      animateProgress(65, 90, 300);
+
+      privPem  = encodePQSecretKey(keys.secretKey);
+      pubPem   = bytesToB64(keys.publicKey);
+      dhPubPem = bytesToB64(kemKeys.publicKey);
+
+      state.generatedCryptoKeys = keys;
+      state.generatedDHKeys     = kemKeys;   // reuse slot — stores ML-KEM keypair
+      state.generatedAlgo       = { name: 'ML-DSA-65' };
+    } else {
+      if      (algo === 'ECDSA-P256') keys = await generateECDSA('P-256');
+      else if (algo === 'ECDSA-P384') keys = await generateECDSA('P-384');
+      else                            keys = await generateRSAPSS();
+      animateProgress(35, 65, 400);
+      const dhKeys = await generateDHKeypair();
+      animateProgress(65, 90, 300);
+
+      privPem  = await exportPrivPem(keys.privateKey);
+      pubPem   = await exportPubPem(keys.publicKey);
+      dhPubPem = await exportPubPem(dhKeys.publicKey);
+
+      state.generatedCryptoKeys = keys;
+      state.generatedDHKeys     = dhKeys;
+      state.generatedAlgo = algo === 'ECDSA-P256' ? { name: 'ECDSA', namedCurve: 'P-256' }
+                          : algo === 'ECDSA-P384' ? { name: 'ECDSA', namedCurve: 'P-384' }
+                          : { name: 'RSA-PSS', hash: 'SHA-256' };
+    }
   } catch (e) {
     toast('Key generation failed: ' + e.message);
     btn.disabled = false; btn.innerHTML = 'GENERATE KEYPAIR'; return;
   }
 
-  animateProgress(35, 65, 400);
-  const dhKeys = await generateDHKeypair();
-  animateProgress(65, 90, 300);
-
-  const privPem  = await exportPrivPem(keys.privateKey);
-  const pubPem   = await exportPubPem(keys.publicKey);
-  const dhPubPem = await exportPubPem(dhKeys.publicKey);
   animateProgress(90, 100, 200);
 
-  state.generatedPrivPem    = privPem;
-  state.generatedPubPem     = pubPem;
-  state.generatedCryptoKeys = keys;
-  state.generatedDHKeys     = dhKeys;
-  state.generatedDHPubPem   = dhPubPem;
-  state.generatedAlgo = algo === 'ECDSA-P256' ? { name: 'ECDSA', namedCurve: 'P-256' }
-                      : algo === 'ECDSA-P384' ? { name: 'ECDSA', namedCurve: 'P-384' }
-                      : { name: 'RSA-PSS', hash: 'SHA-256' };
+  state.generatedPrivPem   = privPem;
+  state.generatedPubPem    = pubPem;
+  state.generatedDHPubPem  = dhPubPem;
 
   $('priv-key-display').textContent = privPem;
   $('pub-key-display').textContent  = pubPem;
@@ -415,15 +582,22 @@ function animateProgress(from, to, ms) {
 
 async function activateAccount() {
   const username = $('reg-username').value.trim();
+  const isPQ     = state.generatedAlgo && state.generatedAlgo.name === 'ML-DSA-65';
   const fp       = await fingerprint(state.generatedPubPem);
 
-  await persistDHPrivKey(state.generatedDHKeys.privateKey, fp);
+  if (isPQ) {
+    // Persist ML-KEM secret key encrypted in localStorage
+    await persistPQKEMKey(state.generatedDHKeys.secretKey, fp);
+  } else {
+    await persistDHPrivKey(state.generatedDHKeys.privateKey, fp);
+  }
 
   const users = getStoredUsers();
   users[fp] = {
-    handle: username, publicKeyPem: state.generatedPubPem,
+    handle: username,
+    publicKeyPem: state.generatedPubPem,   // for PQ: base64 ML-DSA public key
     fingerprint: fp, algo: state.generatedAlgo,
-    dhPubKeyPem: state.generatedDHPubPem,
+    dhPubKeyPem: state.generatedDHPubPem,  // for PQ: base64 ML-KEM public key
     registeredAt: Date.now(),
   };
   localStorage.setItem('cipher_users', JSON.stringify(users));
@@ -431,9 +605,15 @@ async function activateAccount() {
 
   state.me = {
     handle: username, publicKeyPem: state.generatedPubPem,
-    signingKey: state.generatedCryptoKeys.privateKey,
+    // For PQ: signingKey is the ML-DSA secretKey Uint8Array
+    // For classical: signingKey is a CryptoKey object
+    signingKey: isPQ ? state.generatedCryptoKeys.secretKey
+                     : state.generatedCryptoKeys.privateKey,
     fingerprint: fp, algo: state.generatedAlgo,
-    dhPrivKey: state.generatedDHKeys.privateKey,
+    // For PQ: dhPrivKey is the ML-KEM secretKey Uint8Array
+    // For classical: dhPrivKey is a CryptoKey object
+    dhPrivKey:   isPQ ? state.generatedDHKeys.secretKey
+                      : state.generatedDHKeys.privateKey,
     dhPubKeyPem: state.generatedDHPubPem,
   };
 
@@ -459,6 +639,9 @@ async function importKey() {
   const btn = $('btn-import');
   btn.textContent = 'VERIFYING...'; btn.disabled = true;
 
+  // Detect PQ key before encryption check
+  const isPQImport = isPQKey(privPem);
+
   // If the pasted value is a CIPHER-ENC encrypted key, decrypt it first
   let pemToImport = privPem;
   if (isEncryptedKey(privPem)) {
@@ -480,37 +663,91 @@ async function importKey() {
     }
   }
 
-  let keyData;
-  try {
-    keyData = await importPrivateKey(pemToImport);
-  } catch (e) {
-    showLoginError(e.message);
-    btn.textContent = 'IMPORT AND ENTER'; btn.disabled = false; return;
+  let signingKey, publicKeyB64, algo, fp, dhPrivKey, dhPubKeyPem;
+
+  if (isPQImport) {
+    // ── Post-quantum import ──
+    let secretKey;
+    try {
+      secretKey = decodePQSecretKey(pemToImport);
+    } catch (e) {
+      showLoginError(e.message);
+      btn.textContent = 'IMPORT AND ENTER'; btn.disabled = false; return;
+    }
+    // Re-derive public key from secret key via keygen with same seed is not possible
+    // for ML-DSA — public key must be stored. Check localStorage first.
+    // If not found, user must also provide public key — but we store it at registration.
+    algo       = { name: 'ML-DSA-65' };
+    signingKey = secretKey;
+
+    // Derive fingerprint from stored public key if available
+    const users0  = getStoredUsers();
+    const myFp0   = localStorage.getItem('cipher_my_fingerprint');
+    const stored0 = myFp0 && users0[myFp0];
+    if (stored0 && stored0.algo && stored0.algo.name === 'ML-DSA-65') {
+      publicKeyB64 = stored0.publicKeyPem;
+      fp           = myFp0;
+    } else {
+      // Try to find a PQ user whose public key matches
+      // We can't re-derive ML-DSA public key from secret key alone in noble-pq
+      // So we regenerate from the secret key bytes used as seed — but noble keygen
+      // uses a random 32-byte seed, not the full secretKey. We must rely on stored fp.
+      showLoginError('PQ key detected but no matching public key found in this browser. ' +
+        'Make sure you are on the same device where the key was generated, ' +
+        'or restore a full backup first.');
+      btn.textContent = 'IMPORT AND ENTER'; btn.disabled = false; return;
+    }
+
+    // Load ML-KEM key
+    const storedKEM = await loadPQKEMKey(fp);
+    if (storedKEM) {
+      dhPrivKey   = storedKEM;
+      // Re-derive ML-KEM public key from stored user record
+      dhPubKeyPem = stored0.dhPubKeyPem || null;
+    } else {
+      // Regenerate ML-KEM keypair (DMs on other devices will need re-exchange)
+      const kemKeys = await generateMLKEMKeypair();
+      dhPrivKey     = kemKeys.secretKey;
+      dhPubKeyPem   = bytesToB64(kemKeys.publicKey);
+      await persistPQKEMKey(kemKeys.secretKey, fp);
+    }
+
+  } else {
+    // ── Classical import ──
+    let keyData;
+    try {
+      keyData = await importPrivateKey(pemToImport);
+    } catch (e) {
+      showLoginError(e.message);
+      btn.textContent = 'IMPORT AND ENTER'; btn.disabled = false; return;
+    }
+
+    const pubPem  = await exportPubPem(keyData.publicKey);
+    publicKeyB64  = pubPem;
+    algo          = keyData.algorithm;
+    signingKey    = keyData.privateKey;
+    fp            = await fingerprint(pubPem);
+
+    const storedDH = await loadDHPrivKey(fp);
+    if (storedDH) {
+      dhPrivKey   = storedDH;
+      dhPubKeyPem = await exportPubPem(await deriveDHPubFromPriv(dhPrivKey));
+    } else {
+      const dhKeys = await generateDHKeypair();
+      dhPrivKey    = dhKeys.privateKey;
+      dhPubKeyPem  = await exportPubPem(dhKeys.publicKey);
+      await persistDHPrivKey(dhPrivKey, fp);
+    }
   }
 
-  const pubPem = await exportPubPem(keyData.publicKey);
-  const fp     = await fingerprint(pubPem);
   const users  = getStoredUsers();
   const handle = handleOverride || (users[fp] && users[fp].handle) || 'user_' + fp.slice(0,6);
-
-  let dhPrivKey, dhPubKeyPem;
-  const storedDH = await loadDHPrivKey(fp);
-  if (storedDH) {
-    dhPrivKey   = storedDH;
-    dhPubKeyPem = await exportPubPem(await deriveDHPubFromPriv(dhPrivKey));
-  } else {
-    const dhKeys = await generateDHKeypair();
-    dhPrivKey    = dhKeys.privateKey;
-    dhPubKeyPem  = await exportPubPem(dhKeys.publicKey);
-    await persistDHPrivKey(dhPrivKey, fp);
-  }
-
   const existingUser = users[fp] || {};
-  users[fp] = { ...existingUser, handle, publicKeyPem: pubPem, fingerprint: fp, algo: keyData.algorithm, dhPubKeyPem };
+  users[fp] = { ...existingUser, handle, publicKeyPem: publicKeyB64, fingerprint: fp, algo, dhPubKeyPem };
   localStorage.setItem('cipher_users', JSON.stringify(users));
   localStorage.setItem('cipher_my_fingerprint', fp);
 
-  state.me = { handle, publicKeyPem: pubPem, signingKey: keyData.privateKey, fingerprint: fp, algo: keyData.algorithm, dhPrivKey, dhPubKeyPem };
+  state.me = { handle, publicKeyPem: publicKeyB64, signingKey, fingerprint: fp, algo, dhPrivKey, dhPubKeyPem };
 
   // Clear sensitive fields before entering app
   $('login-privkey').value   = '';
@@ -556,7 +793,16 @@ async function openDM(fp) {
   if (state.dmKeys[fp]) { activateDMView(peer); return; }
   if (peer.dhPubKeyPem) {
     try {
-      state.dmKeys[fp] = await deriveSharedDMKey(state.me.dhPrivKey, peer.dhPubKeyPem);
+      if (state.me.algo && state.me.algo.name === 'ML-DSA-65') {
+        // ML-KEM: encapsulate to get shared secret + ciphertext
+        // Store ciphertext in dmKemCiphertexts so the peer can decapsulate
+        const { ciphertext, sharedSecret } = await kemEncapsulate(peer.dhPubKeyPem);
+        state.dmKeys[fp]              = await kemSharedSecretToAES(sharedSecret);
+        if (!state.dmKemCiphertexts)    state.dmKemCiphertexts = {};
+        state.dmKemCiphertexts[fp]    = bytesToB64(ciphertext);
+      } else {
+        state.dmKeys[fp] = await deriveSharedDMKey(state.me.dhPrivKey, peer.dhPubKeyPem);
+      }
       activateDMView(peer); return;
     } catch (e) { toast('DM key derivation failed: ' + e.message); return; }
   }
@@ -661,9 +907,14 @@ async function sendDM(text) {
     from: state.me.fingerprint, handle: state.me.handle,
     publicKeyPem: state.me.publicKeyPem, ts,
   });
-  const ciphertext = await aesEncrypt(envelope, dmKey);
-  persist(dmStorageKey(state.me.fingerprint, fp), { ciphertext, ts, authorHint: state.me.fingerprint.slice(0,6) });
-  renderMessage({ text, author: state.me.handle, fingerprint: state.me.fingerprint, ts, verified: true, enc: 'ECDH+AES', dm: true });
+  const ciphertext  = await aesEncrypt(envelope, dmKey);
+  const isPQDM      = state.me.algo && state.me.algo.name === 'ML-DSA-65';
+  const kemCt       = isPQDM && state.dmKemCiphertexts && state.dmKemCiphertexts[fp];
+  const entry       = { ciphertext, ts, authorHint: state.me.fingerprint.slice(0,6) };
+  if (kemCt) entry.kemCiphertext = kemCt; // Include KEM ct so recipient can decapsulate
+  persist(dmStorageKey(state.me.fingerprint, fp), entry);
+  renderMessage({ text, author: state.me.handle, fingerprint: state.me.fingerprint, ts, verified: true,
+                  enc: isPQDM ? 'ML-KEM-768+AES' : 'ECDH+AES', dm: true });
   scrollToBottom();
 }
 
@@ -703,9 +954,21 @@ async function loadDMHistory(peerFp) {
   for (const entry of stored) {
     if (!dmKey) { renderLocked(entry.ts, entry.authorHint, false); continue; }
     try {
-      const env      = JSON.parse(await aesDecrypt(entry.ciphertext, dmKey));
+      // If no DM key yet but entry has a KEM ciphertext, try to decapsulate
+      let activeDmKey = dmKey;
+      if (!activeDmKey && entry.kemCiphertext && state.me.algo && state.me.algo.name === 'ML-DSA-65' && state.me.dhPrivKey) {
+        try {
+          const sharedSecret = await kemDecapsulate(entry.kemCiphertext, bytesToB64(state.me.dhPrivKey));
+          activeDmKey = await kemSharedSecretToAES(sharedSecret);
+          state.dmKeys[peerFp] = activeDmKey;
+        } catch { /* decapsulation failed */ }
+      }
+      if (!activeDmKey) { renderLocked(entry.ts, entry.authorHint, false); continue; }
+      const env      = JSON.parse(await aesDecrypt(entry.ciphertext, activeDmKey));
+      const isPQEnv  = env.algo && env.algo.name === 'ML-DSA-65';
       const verified = await verifyData(env.sigPayload, env.sig, env.publicKeyPem, env.algo);
-      renderMessage({ text: env.text, author: env.handle, fingerprint: env.from, ts: env.ts, verified, enc: 'ECDH+AES', dm: true });
+      renderMessage({ text: env.text, author: env.handle, fingerprint: env.from, ts: env.ts, verified,
+                      enc: isPQEnv ? 'ML-KEM-768+AES' : 'ECDH+AES', dm: true });
     } catch { renderLocked(entry.ts, entry.authorHint, true); }
   }
   scrollToBottom();
@@ -946,9 +1209,12 @@ function updateMsgInput() {
     const hasKey = !!state.channelKeys[state.channel];
     enabled     = hasKey;
     placeholder = hasKey ? 'Message #' + state.channel + ' (AES-256-GCM encrypted)...' : 'Set a channel passphrase to send messages...';
+    const isPQSess = state.me && state.me.algo && state.me.algo.name === 'ML-DSA-65';
     hint        = state.me
       ? (hasKey
-          ? '> ' + state.me.handle.toUpperCase() + ' · AES-256-GCM · ECDSA SIGNED · fp:' + state.me.fingerprint
+          ? '> ' + state.me.handle.toUpperCase() + ' · AES-256-GCM · ' +
+            (isPQSess ? 'ML-DSA-65 ⚛ PQ-SIGNED' : 'ECDSA SIGNED') +
+            ' · fp:' + state.me.fingerprint
           : '> SET A CHANNEL PASSPHRASE TO ENABLE ENCRYPTION')
       : '';
   }
@@ -1076,6 +1342,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('lock-tab-register').addEventListener('click', () => switchLockTab('register'));
   $('lock-tab-login').addEventListener('click',    () => switchLockTab('login'));
+  // Update algo hint text when selector changes
+  $('reg-algo').addEventListener('change', function() {
+    const hints = {
+      'ML-DSA-65':  '⚛ ML-DSA-65 + ML-KEM-768 — FIPS 203/204 post-quantum. Resistant to quantum computers. Keys are larger than classical.',
+      'ECDSA-P256': 'ECDSA P-256 + ECDH P-256 — classical elliptic curve. Fast, widely supported. Not quantum-resistant.',
+      'ECDSA-P384': 'ECDSA P-384 + ECDH P-256 — classical. Stronger curve, slightly slower.',
+      'RSA-PSS':    'RSA-PSS 2048 + ECDH P-256 — classical RSA. Large keys, slowest generation.',
+    };
+    const h = $('algo-hint');
+    if (h) h.textContent = hints[this.value] || '';
+    const note = $('pq-key-note');
+    if (note) note.classList.toggle('hidden', this.value !== 'ML-DSA-65');
+  });
+
   $('btn-gen').addEventListener('click', generateKeys);
   $('btn-activate').addEventListener('click', activateAccount);
   $('copy-priv-btn').addEventListener('click', () => copyKey('priv'));
