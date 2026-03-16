@@ -1,6 +1,6 @@
 # CIPHER//NET
 
-A self-hosted, single-page encrypted chat application. No accounts, no tracking — just cryptographic keypairs, signed messages, and end-to-end encryption.
+A self-hosted, single-page encrypted chat application. No accounts, no servers, no tracking — just cryptographic keypairs, signed messages, and end-to-end encryption.
 
 Built to run on [OnionShare](https://onionshare.org/), but works on any static web host over HTTPS.
 
@@ -76,7 +76,8 @@ icon-192.png     — home screen icon (192×192)
 icon-512.png     — high-res icon for splash screens (512×512)
 embed-fonts.py   — optional: bakes fonts as base64 for fully offline use
 openpgp.min.js   — OpenPGP.js v5 (must be downloaded separately, see GET_OPENPGP.md)
-GET_OPENPGP.md   — instructions for downloading openpgp.min.js
+noble-pq.js      — noble-post-quantum browser bundle (must be downloaded separately, see GET_OPENPGP.md)
+GET_OPENPGP.md   — instructions for downloading openpgp.min.js and noble-pq.js
 README.md        — this file
 ```
 
@@ -120,23 +121,34 @@ This makes a one-time request from **your machine** to Google's font CDN, then s
 
 Three algorithms available at registration — all generated via the browser's native Web Crypto API:
 
-| Algorithm | Security | Notes |
-|---|---|---|
-| ECDSA P-256 | 128-bit | Recommended. Fast, universally supported. |
-| ECDSA P-384 | 192-bit | Stronger. Slightly slower generation. |
-| RSA-PSS 2048 | ~112-bit | Classical RSA. Large keys, slowest generation. |
+| Algorithm | Security | Quantum-resistant | Notes |
+|---|---|---|---|
+| **ML-DSA-65** | ~AES-192 | ✅ Yes — FIPS 204 | **Default.** Post-quantum. Larger keys (~4KB secret, ~2KB public). |
+| ECDSA P-256 | 128-bit | ❌ No | Classical. Fast, universally supported. |
+| ECDSA P-384 | 192-bit | ❌ No | Classical. Stronger curve, slightly slower. |
+| RSA-PSS 2048 | ~112-bit | ❌ No | Classical RSA. Large keys, slowest generation. |
 
+- ML-DSA-65 secret keys are exported as `PQ-SK:<base64>` (not PKCS#8 PEM). They are larger than classical keys — this is normal.
 - ECDSA P-256 signs with SHA-256; P-384 signs with SHA-384.
-- Private keys are exported as PKCS#8 PEM and shown once. Re-import is supported for all three algorithm types on all major browsers.
+- Classical private keys are exported as PKCS#8 PEM. Re-import is supported for all algorithm types on all major browsers.
 
-### DM encryption (ECDH P-256)
+### DM encryption
 
-A dedicated ECDH P-256 keypair is auto-generated alongside your signing key.
+Two modes depending on the signing algorithm chosen at registration:
 
-1. Your ECDH public key is included in your identity export.
-2. When opening a DM, both parties derive the same AES-256-GCM key independently using `ECDH.deriveKey`.
-3. No shared key is ever transmitted. Each DM message is signed with your ECDSA key and encrypted with the derived AES key.
-4. Your ECDH private key is stored in localStorage wrapped with AES-GCM (key derived from your fingerprint via PBKDF2, 100,000 iterations).
+**Post-quantum (ML-KEM-768, FIPS 203) — default:**
+1. A dedicated ML-KEM-768 keypair is auto-generated alongside your ML-DSA-65 signing key.
+2. When Alice opens a DM to Bob, she *encapsulates* to Bob's ML-KEM public key — producing a KEM ciphertext and a shared secret. The ciphertext is embedded in the first DM message.
+3. Bob *decapsulates* using his ML-KEM secret key to recover the identical shared secret. No secret is ever transmitted.
+4. The shared secret is fed through HKDF-SHA256 to derive an AES-256-GCM session key.
+5. Each DM message is signed with ML-DSA-65 and encrypted with the derived AES key.
+6. The ML-KEM secret key is stored in localStorage encrypted (PBKDF2-wrapped AES-GCM) under `cipher_pqkem_<fingerprint>`.
+
+**Classical (ECDH P-256) — legacy/classical mode:**
+1. A dedicated ECDH P-256 keypair is auto-generated alongside the signing key.
+2. Both parties derive the same AES-256-GCM key independently using `ECDH.deriveKey`.
+3. No shared key is transmitted. Messages are signed with ECDSA and encrypted with the derived AES key.
+4. The ECDH private key is stored encrypted in localStorage (PBKDF2-wrapped AES-GCM) under `cipher_dh_<fingerprint>`.
 
 ### Channel encryption (PBKDF2 + AES-256-GCM)
 
@@ -162,17 +174,20 @@ Private keys can optionally be exported in an encrypted form safe to store in no
 
 | Property | Status |
 |---|---|
-| Channel message encryption | ✓ AES-256-GCM, PBKDF2-derived passphrase key |
-| DM encryption | ✓ AES-256-GCM, ECDH P-256 shared key |
-| Message authentication | ✓ ECDSA P-256/P-384 or RSA-PSS signatures |
+| Channel message encryption | ✓ AES-256-GCM, PBKDF2-SHA-256, 200k iterations |
+| DM encryption (PQ default) | ✓ ML-KEM-768 + HKDF + AES-256-GCM — quantum-resistant |
+| DM encryption (classical) | ✓ ECDH P-256 + AES-256-GCM |
+| Message signing (PQ default) | ✓ ML-DSA-65 — FIPS 204, quantum-resistant |
+| Message signing (classical) | ✓ ECDSA P-256/P-384 or RSA-PSS |
 | Private signing key storage | ✗ Never stored — shown once at registration |
-| ECDH DM key storage | ✓ Stored encrypted (PBKDF2-wrapped AES-GCM) |
+| DM key storage | ✓ Stored encrypted (PBKDF2-wrapped AES-GCM) |
 | Transport security | Depends on host (use HTTPS or .onion) |
 | Anonymity | Depends on host — use OnionShare + Tor Browser |
 | Screenshot prevention | ⚠ Deterrents only — OS capture cannot be blocked |
 | Offline capability | ✓ Service worker caches all assets after first load |
 | PGP encryption | ✓ OpenPGP.js v5, RSA-4096, armored export, GPG/Kleopatra compatible |
 | Password-protected key export | ✓ AES-256-GCM, PBKDF2-SHA-256, 300k iterations |
+| Quantum resistance | ✓ ML-DSA-65 + ML-KEM-768 (NIST FIPS 203/204) — default for new accounts |
 
 ---
 
@@ -210,10 +225,51 @@ Requires Web Crypto API: Firefox, Chrome, Brave, Safari, Tor Browser.
 | `cipher_users` | Public key registry: handle, public key PEM, fingerprint, algo, DH public key |
 | `cipher_msgs_<channel>` | Up to 200 encrypted messages per channel |
 | `cipher_dm_<fpA>_<fpB>` | DM thread (fingerprints sorted, order-independent) |
-| `cipher_dh_<fingerprint>` | ECDH private key (AES-GCM wrapped) |
+| `cipher_dh_<fingerprint>` | ECDH private key for classical DM encryption (AES-GCM wrapped) |
+| `cipher_pqkem_<fingerprint>` | ML-KEM-768 secret key for post-quantum DM encryption (AES-GCM wrapped) |
 | `cipher_my_fingerprint` | Last authenticated fingerprint (for returning user detection) |
 
 All message content is stored as ciphertext. Public keys and fingerprints are stored in plaintext.
+
+---
+
+## Post-Quantum Cryptography
+
+CIPHER//NET implements the NIST post-quantum cryptography standards (finalised 2024) via [noble-post-quantum](https://github.com/paulmillr/noble-post-quantum) — a pure JavaScript, audited, zero-dependency implementation.
+
+### Setup
+
+Download `noble-pq.js` and place it in the repo root (see `GET_OPENPGP.md`). The rest of the app works without it — new accounts will fall back to ECDSA P-256 if the library is missing.
+
+### Algorithms
+
+| Standard | Algorithm | Replaces | Security |
+|---|---|---|---|
+| FIPS 204 | ML-DSA-65 | ECDSA signing | ~AES-192 |
+| FIPS 203 | ML-KEM-768 | ECDH key exchange | ~AES-192 |
+
+### Key sizes
+
+Post-quantum keys are significantly larger than classical keys:
+
+| | ML-DSA-65 | ECDSA P-256 |
+|---|---|---|
+| Secret key | 4,032 bytes | 32 bytes |
+| Public key | 1,952 bytes | 64 bytes |
+| Signature | 3,309 bytes | 64 bytes |
+| DM key (KEM) | 1,184 bytes public / 2,400 bytes secret | 64 bytes |
+
+This is expected and inherent to lattice-based cryptography — the tradeoff for quantum resistance.
+
+### Key format
+
+PQ secret keys are exported as `PQ-SK:<base64>` rather than PKCS#8 PEM. The app detects the prefix automatically on import.
+
+### Quantum threat context
+
+The current elliptic curve algorithms (ECDSA, ECDH) are vulnerable to Shor's algorithm on a sufficiently powerful quantum computer. Breaking P-256 would require an estimated 2,000–4,000 logical qubits — likely 10–20+ years away with current progress. ML-DSA-65 and ML-KEM-768 are based on lattice problems with no known quantum speedup.
+
+**"Harvest now, decrypt later"** — adversaries may be recording encrypted traffic today to decrypt once quantum computers mature. ML-KEM-768 protects against this for DMs.
 
 ---
 
@@ -256,20 +312,6 @@ PGP messages encrypted here can be decrypted by any GPG/Kleopatra user and vice 
 
 ## License
 
-Copyright (C) 2026 RetiredRoca, retiredroca
+MIT License — see [LICENSE](LICENSE).
 
-This program is free software: you can redistribute it and/or modify it under the terms of the **GNU Affero General Public License** as published by the Free Software Foundation version 3 of the License.
-
-This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-### What this means in practice
-
-- ✅ You can use, study, and modify this software freely
-- ✅ You can distribute copies of it
-- ✅ You can distribute modified versions — but you must release your modifications under AGPL v3 as well
-- ✅ If you run a modified version as a network service, you must make your modified source available to users of that service
-- ❌ You cannot take this code, make proprietary changes, and distribute it without releasing those changes
-
-The AGPL's network use clause means that companies can't fork AnonyChat/CipherNet, add features, and deploy it as a paid SaaS product without open-sourcing their version. If you build on AnonyChat/CipherNet, your improvements belong to the community too.
+Free to use, modify, and distribute for any purpose. Attribution appreciated but not required.

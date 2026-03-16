@@ -624,11 +624,12 @@ html, body {
   <p class="hero-desc">
     No servers. No accounts. No tracking.<br>
     Your identity is a <em>cryptographic keypair</em> generated in your browser.
-    Messages are encrypted with <em>AES-256-GCM</em> and signed with <em>ECDSA</em>.
+    Messages are encrypted with <em>AES-256-GCM</em>, signed with <em>ML-DSA-65</em>,
+    and DMs use <em>ML-KEM-768</em> key encapsulation — post-quantum by default.
     Nothing leaves your device unencrypted.
   </p>
   <div class="hero-btns">
-    <a class="btn-primary" href="app/index.html">TRY APP</a>
+    <a class="btn-primary" href="app/index.html">LAUNCH APP</a>
     <a class="btn-outline" href="https://github.com/retiredroca/AnonyChat" target="_blank" rel="noopener">VIEW SOURCE</a>
   </div>
 
@@ -642,19 +643,19 @@ html, body {
         <div class="terminal-url">cipher//net — secure session</div>
       </div>
       <div class="terminal-body">
-        <div class="t-line"><span class="t-prompt">&gt;</span><span class="t-cmd">generating ECDSA P-256 keypair...</span></div>
-        <div class="t-line"><span class="t-out t-ok">✓ signing keypair ready · fp:a3f8c21d</span></div>
-        <div class="t-line"><span class="t-out t-ok">✓ ECDH P-256 DM keypair ready</span></div>
+        <div class="t-line"><span class="t-prompt">&gt;</span><span class="t-cmd">generating ML-DSA-65 keypair [FIPS 204]...</span></div>
+        <div class="t-line"><span class="t-out t-ok">✓ PQ signing keypair ready · fp:a3f8c21d</span></div>
+        <div class="t-line"><span class="t-out t-ok">✓ ML-KEM-768 DM keypair ready [FIPS 203]</span></div>
         <div class="t-gap"></div>
         <div class="t-line"><span class="t-prompt">&gt;</span><span class="t-cmd">deriving channel key [#general]...</span></div>
         <div class="t-line"><span class="t-out t-ok">✓ AES-256-GCM active · PBKDF2-SHA256 · 200k iter</span></div>
         <div class="t-gap"></div>
         <div class="t-line"><span class="t-prompt">&gt;</span><span class="t-cmd">incoming message from fp:7b2e9f14</span></div>
-        <div class="t-line"><span class="t-out t-ok">✓ decrypted · ✓ signature valid · ECDSA-P256</span></div>
-        <div class="t-line"><span class="t-out">"the transmission is secure"</span></div>
+        <div class="t-line"><span class="t-out t-ok">✓ decrypted · ✓ ML-DSA-65 signature valid ⚛</span></div>
+        <div class="t-line"><span class="t-out">"the transmission is quantum-resistant"</span></div>
         <div class="t-gap"></div>
         <div class="t-line"><span class="t-prompt">&gt;</span><span class="t-cmd">status<span class="cursor"></span></span></div>
-        <div class="t-line"><span class="t-out t-ok">✓ CIPHER//NET ONLINE · NO EXTERNAL REQUESTS · ZERO SERVERS</span></div>
+        <div class="t-line"><span class="t-out t-ok">✓ CIPHER//NET ONLINE · PQ CRYPTO ACTIVE · ZERO SERVERS</span></div>
       </div>
     </div>
   </div>
@@ -662,12 +663,12 @@ html, body {
 
 <!-- CRYPTO SPEC BAR -->
 <div class="spec-bar" id="crypto">
-  <div class="spec-item"><strong>AES-256-GCM</strong>Channel Encryption</div>
-  <div class="spec-item"><strong>ECDSA P-256</strong>Message Signing</div>
-  <div class="spec-item"><strong>ECDH P-256</strong>DM Key Exchange</div>
-  <div class="spec-item"><strong>PBKDF2 · 200k</strong>Key Derivation</div>
-  <div class="spec-item"><strong>RSA-4096</strong>PGP Export</div>
-  <div class="spec-item"><strong>Web Crypto API</strong>Zero Dependencies</div>
+  <div class="spec-item"><strong>ML-DSA-65</strong>PQ Signing · FIPS 204</div>
+  <div class="spec-item"><strong>ML-KEM-768</strong>PQ Key Exchange · FIPS 203</div>
+  <div class="spec-item"><strong>AES-256-GCM</strong>Symmetric Encryption</div>
+  <div class="spec-item"><strong>PBKDF2 · SHA-256</strong>Key Derivation</div>
+  <div class="spec-item"><strong>RSA-4096</strong>PGP / GPG Export</div>
+  <div class="spec-item"><strong>Web Crypto API</strong>Zero Server Dependencies</div>
 </div>
 
 <!-- FEATURES -->
@@ -711,9 +712,20 @@ html, body {
       <div class="feature-icon">[✍]</div>
       <div class="feature-title">Signed Messages</div>
       <div class="feature-desc">
-        Every message is signed with your <em>ECDSA</em> private key.
+        Every message is signed with your private key.
+        Default: <em>ML-DSA-65</em> (post-quantum, FIPS 204).
+        Classical: ECDSA P-256/P-384 or RSA-PSS.
         Each message shows <em>✓ SIGNED</em> or <em>✗ INVALID</em>.
-        Tampering is detectable.
+      </div>
+    </div>
+
+    <div class="feature-card">
+      <div class="feature-icon">[⚛]</div>
+      <div class="feature-title">Post-Quantum Cryptography</div>
+      <div class="feature-desc">
+        Default signing uses <em>ML-DSA-65</em> (FIPS 204) and DM key exchange uses
+        <em>ML-KEM-768</em> (FIPS 203) — both NIST-standardised, quantum-computer resistant.
+        Classical algorithms still available for compatibility.
       </div>
     </div>
 
@@ -771,7 +783,7 @@ html, body {
   <div class="cta-title">READY TO TRANSMIT?</div>
   <div class="cta-sub">// No account needed. Generate a keypair and you&apos;re in.</div>
   <div class="cta-btns">
-    <a class="btn-primary" href="app/index.html">TRY CIPHER//NET</a>
+    <a class="btn-primary" href="app/index.html">LAUNCH CIPHER//NET</a>
     <a class="btn-outline" href="https://github.com/retiredroca/AnonyChat/archive/refs/heads/main.zip">DOWNLOAD ZIP</a>
     <a class="btn-outline" href="https://github.com/retiredroca/AnonyChat" target="_blank" rel="noopener">GITHUB REPO</a>
   </div>
