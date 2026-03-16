@@ -526,11 +526,25 @@ async function generateKeys() {
 
   try {
     if (isPQ) {
-      // Check library is loaded before doing anything
-      try { getPQLib(); } catch (e) {
-        toast('⚛ ' + e.message);
+      // Wait up to 3s for the async ES module import to complete
+      btn.innerHTML = '<span class="spinner"></span>LOADING PQ LIB...';
+      const pqReady = await new Promise(resolve => {
+        if (window._pqLoaded) { resolve(true); return; }
+        let waited = 0;
+        const interval = setInterval(() => {
+          waited += 100;
+          if (window._pqLoaded) { clearInterval(interval); resolve(true); }
+          else if (waited >= 3000) { clearInterval(interval); resolve(false); }
+        }, 100);
+      });
+      if (!pqReady) {
+        const err = window._pqError
+          ? 'PQ load error: ' + window._pqError
+          : 'noble-post-quantum.js not found. Make sure the file is in the same folder as index.html and is committed to your repo. Select a classical algorithm to continue without PQ.';
+        toast(err);
         btn.disabled = false; btn.innerHTML = 'GENERATE KEYPAIR'; return;
       }
+      btn.innerHTML = '<span class="spinner"></span>GENERATING...';
 
       // Show PQ note
       const note = $('pq-key-note');

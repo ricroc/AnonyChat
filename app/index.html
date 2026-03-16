@@ -341,37 +341,30 @@
 </div>
 <div id="screenshot-warn">// SCREENSHOT DETECTED — CONTENT MAY BE CAPTURED</div>
 
-<!-- noble-post-quantum: load as classic script (IIFE/UMD globals) -->
-<!-- The file sets window.ml_dsa65 and window.ml_kem768 directly -->
-<script src="noble-post-quantum.js"
-  onload="console.log('[PQ] noble-post-quantum.js loaded, ml_dsa65:', typeof window.ml_dsa65, 'ml_kem768:', typeof window.ml_kem768)"
-  onerror="console.warn('[PQ] noble-post-quantum.js failed to load — check filename and path')">
-</script>
-<script>
-// If the file is an ES module, the <script src> above won't set globals.
-// Detect this and fall back to dynamic import.
-(function() {
-  if (typeof window.ml_dsa65 === 'undefined') {
-    // classic script load didn't work — try ES module import
-    var s = document.createElement('script');
-    s.type = 'module';
-    s.textContent = [
-      'import("./noble-post-quantum.js").then(function(m) {',
-      '  window.ml_dsa65  = m.ml_dsa65;',
-      '  window.ml_kem768 = m.ml_kem768;',
-      '  window._pqLoaded = true;',
-      '  console.log("[PQ] ⚛ Loaded via ES module import | ml_dsa65:", typeof window.ml_dsa65);',
-      '}).catch(function(e) {',
-      '  console.error("[PQ] ES module import also failed:", e.message);',
-      '  window._pqError = e.message;',
-      '});',
-    ].join('\n');
-    document.head.appendChild(s);
-  } else {
-    window._pqLoaded = true;
-    console.log("[PQ] ⚛ Loaded via classic script | ml_dsa65:", typeof window.ml_dsa65);
+<!-- noble-post-quantum: ES module — imported and assigned to window globals -->
+<script type="module">
+  const candidates = ['noble-post-quantum.js', 'noble-pq.js'];
+  for (const name of candidates) {
+    try {
+      const m = await import('./' + name);
+      if (m.ml_dsa65 && m.ml_kem768) {
+        window.ml_dsa65  = m.ml_dsa65;
+        window.ml_kem768 = m.ml_kem768;
+        window._pqLoaded = true;
+        console.log('[PQ] ⚛ Ready from', name);
+        break;
+      } else {
+        console.warn('[PQ]', name, 'loaded but ml_dsa65/ml_kem768 not found in exports:', Object.keys(m));
+        window._pqError = 'exports not found in ' + name + ': ' + Object.keys(m).join(', ');
+      }
+    } catch(e) {
+      console.warn('[PQ] Failed to import', name + ':', e.message);
+      window._pqError = e.message;
+    }
   }
-})();
+  if (!window._pqLoaded) {
+    console.error('[PQ] PQ library unavailable — use classical algorithm.');
+  }
 </script>
 <script src="openpgp.min.js"></script>
 <script src="app.js"></script>
