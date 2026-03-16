@@ -804,62 +804,40 @@ html, body {
 </footer>
 
 <script>
-// ── BTC copy button ──
-document.getElementById('btc-copy-btn').addEventListener('click', function() {
-  const addr = 'bc1qrr2tcdmz9ktf3ss73gc6g427k7x90zvdn5jd59';
-  navigator.clipboard.writeText(addr).then(() => {
-    this.textContent = '✓ COPIED';
-    this.classList.add('copied');
-    setTimeout(() => {
-      this.textContent = 'COPY ADDRESS';
-      this.classList.remove('copied');
-    }, 2000);
-  }).catch(() => {
-    // Fallback
-    const ta = document.createElement('textarea');
-    ta.value = addr;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-    this.textContent = '✓ COPIED';
-    this.classList.add('copied');
-    setTimeout(() => {
-      this.textContent = 'COPY ADDRESS';
-      this.classList.remove('copied');
-    }, 2000);
+// ── BTC QR via api.qrserver.com ──
+(function() {
+  const BTC_URI = 'bitcoin:bc1qrr2tcdmz9ktf3ss73gc6g427k7x90zvdn5jd59';
+  const BTC_ADDR = 'bc1qrr2tcdmz9ktf3ss73gc6g427k7x90zvdn5jd59';
+  const qrEl = document.getElementById('btc-qr-placeholder');
+
+  if (qrEl) {
+    const img = document.createElement('img');
+    img.alt   = 'Bitcoin QR Code';
+    img.style.cssText = 'width:124px;height:124px;display:block;';
+    img.src = 'https://api.qrserver.com/v1/create-qr-code/?size=124x124&data=' +
+              encodeURIComponent(BTC_URI) + '&color=1a0a00&bgcolor=ffffff&margin=4';
+    img.onerror = function() {
+      qrEl.style.cssText = 'width:140px;height:140px;background:#111;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;border:1px solid #4a3a00;';
+      qrEl.innerHTML = '<span style="font-size:28px;color:#ffb300;">₿</span>' +
+                       '<span style="font-size:8px;color:#ffb300;letter-spacing:1px;text-align:center;">SCAN NOT<br>AVAILABLE<br>OFFLINE</span>';
+    };
+    qrEl.innerHTML = '';
+    qrEl.appendChild(img);
+  }
+
+  // ── Copy button ──
+  const copyBtn = document.getElementById('btc-copy-btn');
+  if (copyBtn) copyBtn.addEventListener('click', function() {
+    navigator.clipboard.writeText(BTC_ADDR).then(() => {
+      this.textContent = '✓ COPIED'; this.classList.add('copied');
+      setTimeout(() => { this.textContent = 'COPY ADDRESS'; this.classList.remove('copied'); }, 2000);
+    }).catch(() => {
+      const ta = Object.assign(document.createElement('textarea'), {value: BTC_ADDR});
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+      this.textContent = '✓ COPIED'; this.classList.add('copied');
+      setTimeout(() => { this.textContent = 'COPY ADDRESS'; this.classList.remove('copied'); }, 2000);
+    });
   });
-});
-
-// ── QR code — pure JS, no library ──
-// Generates a simple visual QR-like grid using the BTC URI.
-// For a real scannable QR, swap this with a QR library.
-(function renderBTCQR() {
-  const addr    = 'bitcoin:bc1qrr2tcdmz9ktf3ss73gc6g427k7x90zvdn5jd59';
-  const el      = document.getElementById('btc-qr-placeholder');
-  if (!el) return;
-
-  // Use a Google Charts-style URL if network is available,
-  // otherwise show a styled placeholder
-  const img = document.createElement('img');
-  img.alt   = 'BTC QR Code';
-  img.style.cssText = 'width:124px;height:124px;display:block;';
-
-  // Try Google Charts API (works when online, silently fails offline)
-  const qrUrl = 'https://chart.googleapis.com/chart?chs=124x124&cht=qr&chl=' +
-                encodeURIComponent(addr) + '&choe=UTF-8&chld=M|1';
-  img.src = qrUrl;
-
-  img.onerror = function() {
-    // Offline fallback — styled text block
-    el.innerHTML = '';
-    el.style.cssText = 'width:140px;height:140px;background:#111;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:6px;border:1px solid #4a3a00;';
-    el.innerHTML = '<span style="font-size:28px;">₿</span>' +
-                   '<span style="font-size:8px;color:#ffb300;letter-spacing:1px;text-align:center;">SCAN NOT<br>AVAILABLE<br>OFFLINE</span>';
-  };
-
-  el.innerHTML = '';
-  el.appendChild(img);
 })();
 </script>
 </body>
