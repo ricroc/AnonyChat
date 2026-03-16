@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CIPHER">
+<meta name="theme-color" content="#0a0a0a">
+<title>CIPHER//NET</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ═══ LOCK SCREEN ═══ -->
+<div id="lock-screen">
+  <div class="lock-inner">
+    <div class="lock-logo">CIPHER<span>//</span>NET</div>
+    <div class="lock-sub">// Cryptographic identity required to enter</div>
+
+    <div class="lock-tab-bar">
+      <div class="lock-tab active" id="lock-tab-register">GENERATE KEYS</div>
+      <div class="lock-tab" id="lock-tab-login">IMPORT KEY</div>
+    </div>
+
+    <!-- REGISTER -->
+    <div id="lock-panel-register">
+      <div class="field-group">
+        <label class="field-label" for="reg-username">Handle / Username</label>
+        <input class="field-input" id="reg-username" type="text" placeholder="your_handle" maxlength="32" autocomplete="off" spellcheck="false">
+        <div class="field-hint">Letters, numbers, underscores. 3-32 chars. Public.</div>
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="reg-algo">Signing Algorithm</label>
+        <select class="field-input" id="reg-algo">
+          <option value="ECDSA-P256">ECDSA P-256 (recommended)</option>
+          <option value="ECDSA-P384">ECDSA P-384 (stronger)</option>
+          <option value="RSA-PSS">RSA-PSS 2048 (classical)</option>
+        </select>
+        <div class="field-hint">Signs messages. A separate ECDH P-256 keypair is auto-generated for encrypted DMs.</div>
+      </div>
+      <div id="key-gen-area" class="hidden">
+        <div class="progress-bar"><div class="progress-fill" id="gen-progress"></div></div>
+        <div class="warning-box">
+          <div class="w-title">WARNING: PRIVATE KEY - SHOWN ONCE</div>
+          <p>Save your private key now. It will <strong class="amber">NOT</strong> be stored anywhere. If you lose it, your identity is gone forever. Your DM key is derived automatically and persists in localStorage.</p>
+        </div>
+        <div class="field-group field-group-rel">
+          <label class="field-label priv-label">&#9888; SIGNING PRIVATE KEY &mdash; SAVE THIS &mdash; PASTE THIS TO LOG IN</label>
+          <div class="key-display priv-key-box" id="priv-key-display">Generating...</div>
+          <div class="enc-export-row">
+            <input class="field-input mono-sm" id="export-password" type="password"
+              placeholder="Optional: password-protect before copying"
+              autocomplete="new-password" spellcheck="false">
+            <div class="field-hint" id="export-hint">Leave blank to copy plain PEM. Enter a password to copy AES-256-GCM encrypted.</div>
+          </div>
+          <button class="copy-btn" id="copy-priv-btn">COPY PRIVATE KEY</button>
+        </div>
+        <div class="field-group field-group-rel">
+          <label class="field-label pub-label">PUBLIC KEY &mdash; safe to share &mdash; do NOT paste this to log in</label>
+          <div class="key-display" id="pub-key-display">Generating...</div>
+          <button class="copy-btn" id="copy-pub-btn">COPY PUBLIC KEY</button>
+        </div>
+        <div class="check-row">
+          <input type="checkbox" id="confirm-saved">
+          <label for="confirm-saved">I have saved my private key securely. I understand it cannot be recovered if lost.</label>
+        </div>
+      </div>
+      <div class="lock-btn-row">
+        <button class="btn btn-primary btn-wide" id="btn-gen">GENERATE KEYPAIR</button>
+        <button class="btn btn-primary btn-wide hidden" id="btn-activate" disabled>ENTER CIPHER//NET</button>
+      </div>
+    </div>
+
+    <!-- IMPORT -->
+    <div id="lock-panel-login" class="hidden">
+      <div class="drop-zone" id="drop-zone">DROP cipher-identity.json HERE or click to browse</div>
+      <input type="file" id="identity-file-input" accept=".json,application/json" class="hidden">
+      <div class="identity-preview hidden" id="identity-preview"></div>
+      <div class="field-group">
+        <label class="field-label" for="login-privkey">Signing Private Key (PKCS#8 PEM)</label>
+        <textarea class="field-input mono-sm" id="login-privkey" rows="5" placeholder="Paste your SIGNING PRIVATE KEY here&#10;-----BEGIN PRIVATE KEY-----&#10;MIG...&#10;-----END PRIVATE KEY-----&#10;(NOT the public key)" spellcheck="false"></textarea>
+        <div class="field-hint">Your identity and DM key are re-derived from this. Accepts plain PEM or CIPHER-ENC encrypted key.</div>
+      </div>
+      <div class="field-group" id="import-password-group" class="hidden">
+        <label class="field-label" for="import-password">Key Password <span id="import-password-hint" class="field-hint-inline">(enter if your key is password-protected)</span></label>
+        <input class="field-input mono-sm" id="import-password" type="password"
+          placeholder="Password used when exporting"
+          autocomplete="current-password" spellcheck="false">
+      </div>
+      <div class="field-group">
+        <label class="field-label" for="login-username">Handle (optional override)</label>
+        <input class="field-input" id="login-username" type="text" placeholder="leave blank to use stored handle" maxlength="32" autocomplete="off">
+      </div>
+      <div id="login-error" class="login-error hidden"></div>
+      <div class="lock-btn-row">
+        <button class="btn btn-primary btn-wide" id="btn-import">IMPORT AND ENTER</button>
+      </div>
+    </div>
+
+    <div class="lock-footer">AES-256-GCM · ECDSA P-256/P-384/RSA-PSS · ECDH P-256 · PBKDF2 · Web Crypto API · No external requests</div>
+  </div>
+</div>
+
+<!-- ═══ MAIN APP ═══ -->
+<div id="app" class="hidden">
+  <header>
+    <div class="logo">CIPHER<span>//</span>NET</div>
+    <div class="status-bar">
+      <span><span class="dot active"></span>LOCAL NODE</span>
+      <span id="user-badge" class="hidden"></span>
+    </div>
+  </header>
+
+  <div id="storage-warning" class="hidden">
+    <span class="warn-icon">!</span>
+    <span>Identity lives in localStorage. Clearing site data will erase it.
+    <button id="warn-export-btn" class="warn-link">Export backup</button></span>
+    <button class="dismiss-warn" id="dismiss-warn-btn" title="Dismiss">x</button>
+  </div>
+
+  <div class="main">
+    <!-- SIDEBAR -->
+    <div class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">// Channels</div>
+        <div class="channel-list" id="channel-list">
+          <div class="channel-item active" data-channel="general" data-type="channel"># general <span class="online-count" id="cnt-general">0</span></div>
+          <div class="channel-item" data-channel="random" data-type="channel"># random <span class="online-count" id="cnt-random">0</span></div>
+          <div class="channel-item" data-channel="tech" data-type="channel"># tech <span class="online-count" id="cnt-tech">0</span></div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">// Direct Messages</div>
+        <div class="dm-list" id="dm-list">
+          <div class="dm-empty">Click a user to open a DM</div>
+        </div>
+      </div>
+
+      <div class="sidebar-section sidebar-users">
+        <div class="sidebar-label">// Users <span class="sidebar-hint">(click to DM)</span></div>
+        <div class="user-list" id="user-list">
+          <div class="user-empty">No users</div>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <button class="btn btn-ghost btn-full" id="auth-btn">[ SIGN OUT ]</button>
+      </div>
+      <div class="sidebar-actions hidden" id="identity-actions">
+        <div class="storage-health"><span class="sh-dot"></span><span>IDENTITY STORED LOCALLY</span></div>
+        <button class="btn-tiny highlight" id="btn-export-identity">EXPORT PUBLIC IDENTITY</button>
+        <button class="btn-tiny" id="btn-export-backup">EXPORT FULL BACKUP</button>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-section-label">PGP / GPG</div>
+        <button class="btn-tiny" id="btn-pgp-export">PGP EXPORT KEYPAIR</button>
+        <button class="btn-tiny" id="btn-pgp-import">PGP IMPORT GPG KEY</button>
+        <button class="btn-tiny" id="btn-pgp-encrypt">PGP ENCRYPT MSG</button>
+        <button class="btn-tiny" id="btn-pgp-decrypt">PGP DECRYPT MSG</button>
+      </div>
+    </div>
+
+    <!-- CHAT AREA -->
+    <div class="chat-area">
+      <div class="chat-header">
+        <strong id="channel-title"># general</strong>
+        <span class="header-sep">·</span>
+        <span id="channel-desc">Encrypted channel</span>
+        <!-- Channel passphrase — hidden for DMs -->
+        <div class="passphrase-wrap" id="passphrase-wrap">
+          <input id="channel-passphrase" type="password" placeholder="channel passphrase..." autocomplete="new-password" spellcheck="false">
+          <button class="btn-passphrase" id="btn-set-passphrase">SET KEY</button>
+          <span class="enc-status" id="enc-status">NO KEY SET</span>
+        </div>
+        <!-- DM status — hidden for channels -->
+        <div class="dm-header-info hidden" id="dm-header-info">
+          <span class="enc-status active" id="dm-enc-status">ECDH E2E</span>
+          <span class="dm-fp" id="dm-fp"></span>
+        </div>
+      </div>
+
+      <div class="messages" id="messages"></div>
+
+      <div class="input-area">
+        <div class="input-wrap">
+          <span class="input-prefix" id="input-prefix">&gt;</span>
+          <input id="msg-input" type="text" placeholder="Set a channel passphrase to send messages..." disabled maxlength="2000" autocomplete="off" spellcheck="false">
+          <button class="btn-send" id="btn-send" disabled>SEND</button>
+        </div>
+        <div class="input-hint" id="input-hint">&gt; SET A CHANNEL PASSPHRASE TO ENCRYPT AND SEND MESSAGES</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- DM key exchange modal -->
+<div class="modal-overlay hidden" id="dm-key-modal">
+  <div class="modal dm-modal">
+    <div class="modal-title">DM KEY EXCHANGE</div>
+    <div class="modal-sub">// To send encrypted DMs, the recipient must share their DM public key with you.</div>
+    <div class="field-group">
+      <label class="field-label">Recipient DM Public Key (SPKI PEM)</label>
+      <textarea class="field-input mono-sm" id="dm-pubkey-input" rows="6" placeholder="-----BEGIN PUBLIC KEY-----&#10;Paste the recipient's DM public key here&#10;-----END PUBLIC KEY-----" spellcheck="false"></textarea>
+      <div class="field-hint">Ask the recipient to share their DM public key from their identity export.</div>
+    </div>
+    <div id="dm-modal-error" class="login-error hidden"></div>
+    <div class="btn-row">
+      <button class="btn btn-ghost" id="dm-modal-cancel">CANCEL</button>
+      <button class="btn btn-primary" id="dm-modal-confirm">START ENCRYPTED DM</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<!-- ═══ PGP MODAL ═══ -->
+<div id="pgp-modal" class="modal-overlay hidden">
+  <div class="modal-box pgp-modal-box">
+    <div class="modal-title" id="pgp-modal-title">// PGP</div>
+
+    <!-- EXPORT panel -->
+    <div id="pgp-panel-export" class="hidden">
+      <div class="field-group">
+        <div class="field-label">PGP USER ID (optional)</div>
+        <input class="field-input" id="pgp-uid" type="text" placeholder="Alice &lt;alice@example.com&gt;" autocomplete="off">
+        <div class="field-hint">Included in the OpenPGP User ID. Leave blank to use your handle.</div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">EXPORT PASSPHRASE (optional)</div>
+        <input class="field-input" id="pgp-export-pass" type="password" placeholder="Protects the exported secret key" autocomplete="new-password">
+        <div class="field-hint">GPG/Kleopatra will ask for this when importing the secret key.</div>
+      </div>
+      <div id="pgp-export-output" class="hidden">
+        <div class="field-group">
+          <div class="field-label pgp-out-label">PUBLIC KEY — share freely</div>
+          <textarea class="field-input mono-sm pgp-out" id="pgp-pub-out" rows="5" readonly></textarea>
+          <div class="pgp-btn-row">
+            <button class="btn-tiny" id="pgp-copy-pub">COPY</button>
+            <button class="btn-tiny" id="pgp-dl-pub">&#8595; public.asc</button>
+          </div>
+        </div>
+        <div class="field-group">
+          <div class="field-label pgp-out-label amber">SECRET KEY — keep private</div>
+          <textarea class="field-input mono-sm pgp-out" id="pgp-sec-out" rows="5" readonly></textarea>
+          <div class="pgp-btn-row">
+            <button class="btn-tiny" id="pgp-copy-sec">COPY</button>
+            <button class="btn-tiny" id="pgp-dl-sec">&#8595; secret.asc</button>
+          </div>
+        </div>
+      </div>
+      <div id="pgp-export-error" class="login-error hidden"></div>
+      <div class="modal-btns">
+        <button class="btn btn-primary" id="pgp-export-btn">GENERATE PGP KEYPAIR</button>
+        <button class="btn" id="pgp-export-cancel">CLOSE</button>
+      </div>
+    </div>
+
+    <!-- IMPORT panel -->
+    <div id="pgp-panel-import" class="hidden">
+      <div class="field-group">
+        <div class="field-label">ARMORED PRIVATE KEY</div>
+        <textarea class="field-input mono-sm" id="pgp-import-key" rows="8"
+          placeholder="-----BEGIN PGP PRIVATE KEY BLOCK-----&#10;...&#10;-----END PGP PRIVATE KEY BLOCK-----"
+          spellcheck="false"></textarea>
+      </div>
+      <div class="field-group">
+        <div class="field-label">PASSPHRASE (if protected)</div>
+        <input class="field-input" id="pgp-import-pass" type="password" placeholder="Leave blank if unprotected" autocomplete="current-password">
+      </div>
+      <div id="pgp-import-error" class="login-error hidden"></div>
+      <div class="modal-btns">
+        <button class="btn btn-primary" id="pgp-import-btn">IMPORT GPG KEY</button>
+        <button class="btn" id="pgp-import-cancel">CLOSE</button>
+      </div>
+    </div>
+
+    <!-- ENCRYPT panel -->
+    <div id="pgp-panel-encrypt" class="hidden">
+      <div class="field-group">
+        <div class="field-label">RECIPIENT PUBLIC KEY</div>
+        <textarea class="field-input mono-sm" id="pgp-enc-pubkey" rows="5"
+          placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----&#10;..."
+          spellcheck="false"></textarea>
+        <div class="field-hint">Message will be encrypted for recipient and signed with your key.</div>
+      </div>
+      <div class="field-group">
+        <div class="field-label">PLAINTEXT MESSAGE</div>
+        <textarea class="field-input mono-sm" id="pgp-enc-plain" rows="4" placeholder="Message to encrypt..." spellcheck="false"></textarea>
+      </div>
+      <div class="field-group hidden" id="pgp-enc-out-group">
+        <div class="field-label pgp-out-label">ENCRYPTED MESSAGE</div>
+        <textarea class="field-input mono-sm pgp-out" id="pgp-enc-out" rows="6" readonly></textarea>
+        <button class="btn-tiny" id="pgp-copy-enc">COPY</button>
+      </div>
+      <div id="pgp-encrypt-error" class="login-error hidden"></div>
+      <div class="modal-btns">
+        <button class="btn btn-primary" id="pgp-enc-btn">ENCRYPT &amp; SIGN</button>
+        <button class="btn" id="pgp-enc-cancel">CLOSE</button>
+      </div>
+    </div>
+
+    <!-- DECRYPT panel -->
+    <div id="pgp-panel-decrypt" class="hidden">
+      <div class="field-group">
+        <div class="field-label">SENDER PUBLIC KEY (optional — for sig verification)</div>
+        <textarea class="field-input mono-sm" id="pgp-dec-pubkey" rows="4"
+          placeholder="-----BEGIN PGP PUBLIC KEY BLOCK-----&#10;..."
+          spellcheck="false"></textarea>
+      </div>
+      <div class="field-group">
+        <div class="field-label">ENCRYPTED MESSAGE</div>
+        <textarea class="field-input mono-sm" id="pgp-dec-cipher" rows="6"
+          placeholder="-----BEGIN PGP MESSAGE-----&#10;..."
+          spellcheck="false"></textarea>
+      </div>
+      <div class="field-group hidden" id="pgp-dec-out-group">
+        <div class="field-label pgp-out-label">DECRYPTED MESSAGE</div>
+        <textarea class="field-input mono-sm pgp-out" id="pgp-dec-out" rows="4" readonly></textarea>
+        <div id="pgp-dec-sig-status" class="pgp-sig-status"></div>
+      </div>
+      <div id="pgp-decrypt-error" class="login-error hidden"></div>
+      <div class="modal-btns">
+        <button class="btn btn-primary" id="pgp-dec-btn">DECRYPT</button>
+        <button class="btn" id="pgp-dec-cancel">CLOSE</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Screenshot deterrent overlays -->
+<div id="screen-blank">
+  <div class="blank-title">// SCREEN PROTECTED</div>
+  <div class="blank-sub">CONTENT HIDDEN WHILE WINDOW INACTIVE</div>
+</div>
+<div id="screenshot-warn">// SCREENSHOT DETECTED — CONTENT MAY BE CAPTURED</div>
+
+<script src="openpgp.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
